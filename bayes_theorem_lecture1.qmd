@@ -28,11 +28,19 @@ data(fake_news)
 💻 📈 Take 10 minutes to do some some exploratory data analysis below and we will chat about best practices. Keep in mind two variables that we will focus on, type and title_has_exc
 
 ```{r}
-
+ggplot(data = fake_news, aes(x = type, fill = title_has_excl)) +
+  geom_bar()
 ```
 
 ```{r}
-
+ggplot(data = fake_news, aes(x = type, fill = factor(title_has_excl))) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Count of Titles by News Type and Exclamation Usage",
+    x = "News Type",
+    y = "Count",
+    fill = "Has Exclamation?"
+  )
 ```
 
 ```{r}
@@ -178,11 +186,137 @@ Come up with your own P(B\|A) and share with the class
 Let's choose one, generate synthetic data, and model
 
 ```{r}
+set.seed(123)  # for reproducibility
+
+# Number of people to simulate
+n <- 1000  
+
+# Prior probability: is a person on vacation?
+# (say 30% of people are tourists on vacation)
+vacation <- rbinom(n, 1, 0.3)  
+
+# Conditional probabilities of going to the beach:
+# - If on vacation: high probability
+# - If not on vacation: lower probability
+p_beach_if_vacation <- 0.8
+p_beach_if_not_vacation <- 0.2
+
+beach_today <- ifelse(
+  vacation == 1,
+  rbinom(n, 1, p_beach_if_vacation),
+  rbinom(n, 1, p_beach_if_not_vacation)
+)
+
+# Make into a dataframe
+beach_data <- data.frame(
+  vacation = ifelse(vacation == 1, "Yes", "No"),
+  beach_today = ifelse(beach_today == 1, "Yes", "No")
+)
+
+# Peek at first few rows
+head(beach_data)
+
+# Show proportions
+prop.table(table(beach_data$vacation, beach_data$beach_today), 1)
+
+# Show full counts with totals
+cat("\nCounts of people:\n")
+addmargins(table(beach_data))
 
 ```
 
 ```{r}
+library(ggplot2)
 
+set.seed(123)  # for reproducibility
+
+# Number of people to simulate
+n <- 1000  
+
+# Vacation status
+vacation <- rbinom(n, 1, 0.3)  
+
+# Conditional probabilities
+p_beach_if_vacation <- 0.8
+p_beach_if_not_vacation <- 0.2
+
+# Beach outcome
+beach_today <- ifelse(
+  vacation == 1,
+  rbinom(n, 1, p_beach_if_vacation),
+  rbinom(n, 1, p_beach_if_not_vacation)
+)
+
+# Build dataset
+beach_data <- data.frame(
+  vacation = ifelse(vacation == 1, "Yes", "No"),
+  beach_today = ifelse(beach_today == 1, "Yes", "No")
+)
+
+# Show counts with totals
+cat("\nCounts of people:\n")
+print(addmargins(table(beach_data)))
+
+# Plot results
+ggplot(beach_data, aes(x = vacation, fill = beach_today)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Beach Visits in Hawaii",
+    x = "On Vacation?",
+    y = "Number of People",
+    fill = "Went to Beach"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+P(A) - On vacation
+
+P(B) - Went to beach
+
+P(B\|A) - what is the probability this person went to the beach given they are on vacation
+
+L(B\|A) = P(A\|B) - the probability that this person is on vacation given they went to the beach.
+
+```{r}
+beach_data %>% 
+  tabyl(beach_today) %>% 
+  adorn_totals("row")
+```
+
+```{r}
+probability_went_to_beach <-0.36
+```
+
+P(A) - this person is on vacation
+
+```{r}
+beach_data %>% 
+  tabyl(vacation) %>% 
+  adorn_totals("row")
+```
+
+```{r}
+probability_on_vacation <- 0.30
+```
+
+L(B\|A) = P(A\|B) - the probability that this person is on vacation given they went to the beach.
+
+```{r}
+beach_data %>% 
+  tabyl(beach_today, vacation) %>% 
+  adorn_percentages("row")
+```
+
+```{r}
+likelihood_went_to_the_beach_on_vacation <-0.65
+```
+
+P(B\|A) - what is the probability this person went to the beach given they are on vacation
+
+```{r}
+(probability_went_to_beach * likelihood_went_to_the_beach_on_vacation) / probability_on_vacation
 ```
 
 ### Video
