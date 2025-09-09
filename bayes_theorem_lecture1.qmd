@@ -334,7 +334,13 @@ data(pop_vs_soda)
 Exploratory Analysis
 
 ```{r}
+ggplot(pop_vs_soda, aes(x = word_for_cola, fill = state)) +
+  geom_bar()
+```
 
+```{r}
+ggplot(pop_vs_soda, aes(x = region, fill = word_for_cola)) +
+  geom_bar()
 ```
 
 1\) Build a prior probability model (an unconditional probability model) with probabilities for where the person is from
@@ -377,32 +383,110 @@ Exploratory Analysis
 
 Prior Probability
 
-```{r}
-
-```
-
-2\) Regional Likelihoods
+P(B) - person from south
 
 ```{r}
-
+pop_vs_soda %>% 
+  tabyl(region)
 ```
 
 ```{r}
+priors <- c(
+  south = .39,
+  midwest = 0.21,
+  northeast = 0.17,
+  west = 0.24
+)
+priors
+```
 
+```{r}
+prior_probability_from_south <- 0.39
+```
+
+\
+2) Regional Likelihoods
+
+```{r}
+likelihoods<- pop_vs_soda %>% 
+  tabyl(pop, region) %>% 
+  adorn_percentages("col") %>% 
+  filter(pop=="TRUE") %>% 
+    select(-pop) %>% 
+    unlist()
+  
+likelihoods
+```
+
+```{r}
+probability_says_pop_given_from_south <- 0.079
 ```
 
 3\) Marginal prior probability that a person uses the word pop
 
 ```{r}
-
+prior_probability_says_pop <- sum(priors*likelihoods)
+prior_probability_says_pop
 ```
 
 ```{r}
-
+(prior_probability_from_south*
+probability_says_pop_given_from_south)/
+prior_probability_says_pop
 ```
 
 4\) Finding our posterior probability P(S\|A)
 
 ```{r}
+# Install packages if needed
+pkgs <- c("maps", "ggplot2", "dplyr")
+install.packages(setdiff(pkgs, rownames(installed.packages())), repos = "https://cloud.r-project.org")
+
+library(maps)
+library(ggplot2)
+library(dplyr)
+
+# ---- Define regions ----
+south <- c("delaware","maryland","virginia","west virginia","kentucky","north carolina","south carolina",
+           "georgia","florida","alabama","mississippi","tennessee","arkansas","louisiana","texas","oklahoma")
+midwest <- c("ohio","indiana","illinois","michigan","wisconsin","minnesota","iowa",
+             "missouri","north dakota","south dakota","nebraska","kansas")
+northeast <- c("maine","new hampshire","vermont","massachusetts","rhode island","connecticut",
+               "new york","new jersey","pennsylvania")
+west <- c("montana","idaho","wyoming","colorado","new mexico","arizona","utah","nevada",
+          "california","oregon","washington","alaska","hawaii")
+
+# ---- Assign preferred terms by region ----
+region_terms <- data.frame(
+  state = c(south, midwest, northeast, west),
+  region = c(rep("South", length(south)),
+             rep("Midwest", length(midwest)),
+             rep("Northeast", length(northeast)),
+             rep("West", length(west))),
+  term = c(rep("Coke", length(south)),
+           rep("Pop", length(midwest)),
+           rep("Soda", length(northeast)),
+           rep("Soda", length(west)))
+)
+
+# ---- Map data ----
+us_map <- map_data("state")
+
+# ---- Join map with terms ----
+map_data_joined <- us_map %>%
+  left_join(region_terms, by = c("region" = "state"))
+
+# ---- Colors ----
+fill_colors <- c("Pop"="#9ecae1", "Soda"="#9ae6b4", "Coke"="#fcae91", "Other"="#c2a0d9")
+
+# ---- Plot ----
+ggplot(map_data_joined, aes(x = long, y = lat, group = group, fill = term)) +
+  geom_polygon(color = "white") +
+  scale_fill_manual(values = fill_colors, na.value = "lightgray") +
+  coord_fixed(1.3) +
+  labs(title = "Regional Terms for Soft Drinks in the U.S.",
+       subtitle = "South = Coke, Midwest = Pop, Northeast/West = Soda",
+       fill = "Term") +
+  theme_void()
 
 ```
