@@ -1,0 +1,30 @@
+---
+  title: "MLB Average Spectators (2025)"
+format: html
+---
+  
+  # MLB 2025 Average Home Attendance
+  
+  #This dataset shows the average spectators per game for MLB teams in the 2025 season.  
+#Source: [ESPN Attendance Report](https://www.espn.com/mlb/attendance?utm_source=chatgpt.com)
+
+#{r}
+library(knitr)
+
+attendance <- data.frame(
+  Rank = 1:19,
+  Team = c("Los Angeles Dodgers", "New York Yankees", "San Diego Padres", 
+           "Philadelphia Phillies", "New York Mets", "Chicago Cubs", 
+           "San Francisco Giants", "Atlanta Braves", "Toronto Blue Jays", 
+           "Boston Red Sox", "Houston Astros", "Milwaukee Brewers", 
+           "Los Angeles Angels", "Seattle Mariners", "Colorado Rockies", 
+           "Detroit Tigers", "Texas Rangers", "Arizona Diamondbacks", 
+           "St. Louis Cardinals"),
+  Avg_Home_Attendance_2025 = c(49536, 42347, 42347, 41766, 39775, 37251, 
+                               36026, 35869, 34817, 34198, 33677, 32409, 
+                               32145, 30656, 30057, 29795, 29672, 29487, 
+                               27777)
+)
+
+kable(attendance, caption = "Average Home Attendance by MLB Team (2025)")
+
