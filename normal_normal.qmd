@@ -117,7 +117,7 @@ ggplot(concussion_subjects, aes(x = volume)) +
 # Histogram with normal curve overlay
 ggplot(concussion_subjects, aes(x = volume)) + 
   geom_histogram(aes(y = after_stat(density)), bins = 8, 
-                 fill = "lightcoral", alpha = 0.7, color = "black") +
+                 fill = "greenl", alpha = 0.7, color = "black") +
   stat_function(fun = dnorm, 
                 args = list(mean = mean(concussion_subjects$volume), 
                            sd = sd(concussion_subjects$volume)),
@@ -197,16 +197,17 @@ cat("95% Credible Interval: [",
 
 The Normal-Normal conjugate family provides a powerful framework for Bayesian inference when dealing with normally distributed data. In our analysis of hippocampal volumes among concussion patients:
 
-1. **Prior Information**: We started with a prior belief that the mean hippocampal volume was around 6.5 cm³ with considerable uncertainty (SD = 0.4).
+1.  **Prior Information**: We started with a prior belief that the mean hippocampal volume was around 6.5 cm³ with considerable uncertainty (SD = 0.4).
 
-2. **Data Impact**: The observed data (mean = 5.735 cm³, n = 25) provided strong evidence that the true mean is lower than our prior expectation.
+2.  **Data Impact**: The observed data (mean = 5.735 cm³, n = 25) provided strong evidence that the true mean is lower than our prior expectation.
 
-3. **Posterior Synthesis**: The posterior distribution combines both sources of information, resulting in a mean of approximately 5.78 cm³ with much reduced uncertainty (SD ≈ 0.097).
+3.  **Posterior Synthesis**: The posterior distribution combines both sources of information, resulting in a mean of approximately 5.78 cm³ with much reduced uncertainty (SD ≈ 0.097).
 
-4. **Key Insights**:
-   - The posterior is much more concentrated than the prior, reflecting the information gained from the data
-   - The posterior mean is closer to the sample mean than the prior mean, showing that the data had more influence
-   - The 95% credible interval is much narrower than the prior range, indicating increased certainty
+4.  **Key Insights**:
+
+    -   The posterior is much more concentrated than the prior, reflecting the information gained from the data
+    -   The posterior mean is closer to the sample mean than the prior mean, showing that the data had more influence
+    -   The 95% credible interval is much narrower than the prior range, indicating increased certainty
 
 This analysis demonstrates how Bayesian methods allow us to formally combine prior knowledge with observed data to make more informed inferences about unknown parameters.
 
@@ -225,3 +226,33 @@ AI Prompting
     -   What assumptions are associated with the model you chose? With those assumptions in mind, is the model still a good fit for your question/data?
 
     -   Are there real datasets you can use to answer your question opposed to AI generated datasets?
+
+### Alternate Models & Fit
+
+**Alternate Bayesian models:**
+
+**Beta–Binomial:** Best if attendance is modeled as a proportion of stadium capacity (successes vs. trials).
+
+**Gamma–Poisson (Negative Binomial):** Good if we had game-by-game attendance counts, since it captures variation and overdispersion.
+
+**Normal–Normal:** Works better with my current dataset of *average attendances per team*, since averages tend to be bell-shaped and continuous.
+
+-   **Assumptions of my chosen model (Normal–Normal):**
+
+    Attendance averages are roughly normally distributed.
+
+    -   Variance is constant across teams.
+
+        Each team’s average attendance is independent from the others.
+
+        **Are these assumptions reasonable?**\
+
+        Yes, since I am working with season averages, the distribution of means is close to normal and the variance isn’t wildly different across teams. It’s not perfect, but it’s a good fit for this summary-level data.
+
+    **Real datasets to use:**
+
+    **ESPN/MLB.com** (game-by-game attendance logs).
+
+    **Baseball Reference** (historical season/team attendance).
+
+    **Retrosheet** (play-by-play and game data, including crowds).
