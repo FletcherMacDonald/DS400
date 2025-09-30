@@ -1,0 +1,227 @@
+---
+title: "Normal Normal"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(bayesrules)
+```
+
+## [5.3 Normal-Normal conjugate family](https://www.bayesrulesbook.com/chapter-5#normal-normal-conjugate-family)
+
+We now have two conjugate families in our toolkit: the Beta-Binomial and the Gamma-Poisson. But many more conjugate families exist! It’s impossible to cover them all, but there is a third conjugate family that’s especially helpful to know: the **Normal-Normal**.
+
+Consider a data story. As scientists learn more about brain health, the dangers of concussions (hence of activities in which participants sustain repeated concussions) are gaining greater attention ([Bachynski 2019](https://www.bayesrulesbook.com/chapter-5#ref-bachynski2019no)). Among all people who have a history of concussions, we are interested in μ, the average volume (in cubic centimeters) of a specific part of the brain: the hippocampus. Though we don’t have prior information about this group in particular, Wikipedia tells us that among the general population of human adults, both halves of the hippocampus have a volume between 3.0 and 3.5 cubic centimeters.^[38](https://www.bayesrulesbook.com/chapter-5#fn38)^ Thus, the *total* hippocampal volume of *both* sides of the brain is between 6 and 7 cm3. Using this as a starting point, we’ll assume that the mean hippocampal volume among people with a history of concussions, μ, is also somewhere between 6 and 7 cm3, with an average of 6.5. We’ll balance this prior understanding with data on the hippocampal volumes of n=25 subjects, (Y1,Y2,…,Yn), using the **Normal-Normal Bayesian model**.
+
+No matter the parameters, the Normal model is bell-shaped and symmetric around μ – thus as μ gets larger, the model shifts to the right along with it. Further, σ controls the variability of the Normal model – as σ gets larger, the model becomes more spread out.
+
+Play with the parameter below
+
+```{r}
+plot_normal(mean = 10, sd = 1) +
+  geom_vline(xintercept = 9, linetype = "dashed", color = "blue") +
+  geom_vline(xintercept = 11, linetype = "dashed", color = "blue") +
+  geom_vline(xintercept = 8, color = "coral") +
+  geom_vline(xintercept = 12, color = "coral") +
+  theme_minimal()
+```
+
+Using our understanding of a Normal model, we can now *tune* the prior hyperparameters θ and τ to reflect our prior understanding and uncertainty about the average hippocampal volume among people that have a history of concussions, μ. Based on our rigorous Wikipedia research that hippocampal volumes tend to be between 6 and 7 cm3, we’ll set the Normal prior mean θ to the midpoint, 6.5. Further, we’ll set the Normal prior standard deviation to τ=0.4. In other words, by [(5.12)](https://www.bayesrulesbook.com/chapter-5#eq:normal-scale), we think there’s a 95% chance that μ is somewhere between 5.7 and 7.3 cm3 (6.5±2∗0.4). This range is *wider*, and hence more conservative, than what Wikipedia indicated. Our uncertainty here reflects the fact that we didn’t vet the Wikipedia sources, we aren’t confident that the features for the typical adult translates to people with a history of concussions, and we generally aren’t sure what’s going on here (i.e., we’re not brain experts). Putting this together, our tuned prior model for μ is:
+
+```{r}
+plot_normal(mean = 6.5, sd = 0.4)
+```
+
+*Challenge*
+
+-   Add 4 `geom_vline()` to the plot above to indicate 1 standard deviation capturing 68% of the data and 2 standard deviations capturing 95% of the data
+
+```{r}
+plot_normal(mean = 6.5, sd = 0.4) +
+  geom_vline(xintercept = 6.5 - 0.4, linetype = "dashed", color = "blue") +  # 1 SD below
+  geom_vline(xintercept = 6.5 + 0.4, linetype = "dashed", color = "blue") +  # 1 SD above
+  geom_vline(xintercept = 6.5 - 2*0.4, color = "coral") +  # 2 SD below
+  geom_vline(xintercept = 6.5 + 2*0.4, color = "coral") +  # 2 SD above
+  theme_minimal() +
+  labs(title = "Prior: μ ~ N(6.5, 0.4²)",
+       subtitle = "Blue lines: 1 SD (68% of data), Coral lines: 2 SD (95% of data)")
+```
+
+Let’s apply and examine this result in our analysis of μ, the average hippocampal volume among people that have a history of concussions. We’ve already built our prior model of μ, μ∼N(6.5,0.42). Next, consider some data. The `football` data in **bayesrules**, a subset of the `FootballBrain` data in the **Lock5Data** package ([Lock et al. 2016](https://www.bayesrulesbook.com/chapter-5#ref-lock2016statistics)), includes results for a cross-sectional study of hippocampal volumes among 75 subjects ([Singh et al. 2014](https://www.bayesrulesbook.com/chapter-5#ref-singh2014relationship)): 25 collegiate football players with a history of concussions (`fb_concuss`), 25 collegiate football players that do not have a history of concussions (`fb_no_concuss`), and 25 control subjects. For our analysis, we’ll focus on the n=25 subjects with a history of concussions (`fb_concuss`):
+
+```{r}
+# Load the data
+data(football)
+```
+
+*Challenge*
+
+-   Visualize the football data in an interesting way utilizing `ggplot()`
+
+```{r}
+# Create a comprehensive visualization of the football data
+ggplot(football, aes(x = group, y = volume, fill = group)) +
+  geom_violin(alpha = 0.7) +
+  geom_boxplot(width = 0.1, alpha = 0.8) +
+  geom_jitter(width = 0.1, alpha = 0.6, size = 1) +
+  scale_fill_viridis_d(name = "Group") +
+  labs(title = "Hippocampal Volume by Group",
+       subtitle = "Comparison across football players and controls",
+       x = "Group",
+       y = "Hippocampal Volume (cm³)",
+       caption = "Data from FootballBrain study") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~group, scales = "free_x", ncol = 3)
+```
+
+Back to our example
+
+```{r}
+# Filter for concussion subjects
+concussion_subjects <- football %>%
+  filter(group == "fb_concuss")
+
+# Display basic summary statistics
+concussion_subjects %>%
+  summarise(
+    n = n(),
+    mean_volume = mean(volume),
+    sd_volume = sd(volume),
+    min_volume = min(volume),
+    max_volume = max(volume)
+  )
+```
+
+```{r}
+concussion_subjects %>%
+  summarize(mean(volume))
+```
+
+```{r}
+# Density plot with mean line
+ggplot(concussion_subjects, aes(x = volume)) + 
+  geom_density(fill = "lightblue", alpha = 0.7) +
+  geom_vline(xintercept = mean(concussion_subjects$volume), 
+             color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Distribution of Hippocampal Volume (Concussion Subjects)",
+       x = "Volume (cm³)",
+       y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# Histogram with normal curve overlay
+ggplot(concussion_subjects, aes(x = volume)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 8, 
+                 fill = "lightcoral", alpha = 0.7, color = "black") +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(concussion_subjects$volume), 
+                           sd = sd(concussion_subjects$volume)),
+                color = "blue", size = 1) +
+  labs(title = "Histogram with Normal Curve Overlay",
+       x = "Volume (cm³)",
+       y = "Density") +
+  theme_minimal()
+```
+
+We plot this likelihood function using `plot_normal_likelihood()`, providing our observed `volume` data and data standard deviation σ=0.59 This likelihood illustrates the compatibility of our observed hippocampal data with different μ values. To this end, the hippocampal patterns observed in our data would most likely have arisen if the mean hippocampal volume across *all* people with a history of concussions, μ, were between 5.3 and 6.1 cm3. Further, we’re *most* likely to have observed a mean volume of ¯¯¯y= 5.735 among our 25 sample subjects if the underlying population mean μ were also 5.735.
+
+```{r}
+# Plot the likelihood function
+plot_normal_likelihood(y = concussion_subjects$volume, sigma = 0.59) +
+  labs(title = "Likelihood Function for μ",
+       subtitle = "Shows compatibility of observed data with different μ values",
+       x = "μ (population mean)",
+       y = "Likelihood") +
+  theme_minimal()
+```
+
+It is important to note that we are not modeling the distribution of concussion patients hippocampal volume as we did above with `geom_density()`
+
+-   It is important to note that we are plotting **distributions over μ (the population mean)**, not over individual data
+
+-   likelihood_sd = σ/√n = 0.59/√25 = 0.12
+
+Bringing all of these pieces together, we plot and summarize our Normal-Normal analysis of μ using `plot_normal_normal()` and `summarize_normal_normal()` in the **bayesrules** package. Though a compromise between the prior and data, our posterior understanding of μ is more heavily influenced by the latter. In light of our data, we are much more *certain* about the mean hippocampal volume among people with a history of concussions, and believe that this figure is somewhere in the range from 5.586 to 5.974 cm3 (5.78±2∗0.097).
+
+```{r}
+# Plot the complete Normal-Normal analysis
+plot_normal_normal(mean = 6.5, sd = 0.4, sigma = 0.59,
+                   y_bar = 5.735, n = 25) +
+  labs(title = "Normal-Normal Bayesian Analysis",
+       subtitle = "Prior, Likelihood, and Posterior for μ",
+       x = "μ (population mean)",
+       y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# Summarize the posterior distribution
+posterior_summary <- summarize_normal_normal(mean = 6.5, sd = 0.4, sigma = 0.59,
+                                           y_bar = 5.735, n = 25)
+print(posterior_summary)
+```
+
+```{r}
+# Calculate the posterior mean and standard deviation manually
+# Posterior mean: (τ²ȳ + σ²θ) / (τ² + σ²)
+# Posterior variance: (τ²σ²) / (τ² + σ²)
+
+prior_mean <- 6.5
+prior_var <- 0.4^2
+data_mean <- 5.735
+data_var <- 0.59^2
+n <- 25
+
+# Likelihood variance (σ²/n)
+likelihood_var <- data_var / n
+
+# Posterior parameters
+posterior_mean <- (likelihood_var * prior_mean + prior_var * data_mean) / 
+                  (likelihood_var + prior_var)
+posterior_var <- (prior_var * likelihood_var) / (prior_var + likelihood_var)
+posterior_sd <- sqrt(posterior_var)
+
+cat("Posterior mean:", round(posterior_mean, 3), "\n")
+cat("Posterior SD:", round(posterior_sd, 3), "\n")
+cat("95% Credible Interval: [", 
+    round(posterior_mean - 1.96 * posterior_sd, 3), ", ",
+    round(posterior_mean + 1.96 * posterior_sd, 3), "]\n")
+```
+
+## Interpretation and Conclusions
+
+The Normal-Normal conjugate family provides a powerful framework for Bayesian inference when dealing with normally distributed data. In our analysis of hippocampal volumes among concussion patients:
+
+1. **Prior Information**: We started with a prior belief that the mean hippocampal volume was around 6.5 cm³ with considerable uncertainty (SD = 0.4).
+
+2. **Data Impact**: The observed data (mean = 5.735 cm³, n = 25) provided strong evidence that the true mean is lower than our prior expectation.
+
+3. **Posterior Synthesis**: The posterior distribution combines both sources of information, resulting in a mean of approximately 5.78 cm³ with much reduced uncertainty (SD ≈ 0.097).
+
+4. **Key Insights**:
+   - The posterior is much more concentrated than the prior, reflecting the information gained from the data
+   - The posterior mean is closer to the sample mean than the prior mean, showing that the data had more influence
+   - The 95% credible interval is much narrower than the prior range, indicating increased certainty
+
+This analysis demonstrates how Bayesian methods allow us to formally combine prior knowledge with observed data to make more informed inferences about unknown parameters.
+
+### Challenge
+
+AI Prompting
+
+-   Go back to your modeling scenarios that you created last class
+
+-   Show your data, code, and outputs to an AI assistant
+
+-   Ask it to critique your analysis
+
+    -   Are there alternate/better bayesian methods/models to apply to the question your asking? Think of what we have covered (beta-binomial, gamma-poisson, normal-normal)
+
+    -   What assumptions are associated with the model you chose? With those assumptions in mind, is the model still a good fit for your question/data?
+
+    -   Are there real datasets you can use to answer your question opposed to AI generated datasets?

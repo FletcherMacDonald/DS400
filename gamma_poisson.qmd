@@ -160,19 +160,18 @@ Practice
 1.  The most common value of λ is 4, and the mean is 7.
 
 ```{r}
-
+plot_gamma(shape = 7/3, rate = 1/3, mean = TRUE, mode = TRUE)
 ```
 
 1.  The most common value of λ is 10 and the mean is 12.
 
 ```{r}
-
+plot_gamma(shape = 12/2, rate = 1/2, mean = TRUE, mode = TRUE)
 ```
 
 1.  The most common value of λ is 5, and the variance is 3.
 
-```{r}
-
+```{}
 ```
 
 **Exercise 5.7 (World Cup)** Let λ be the average number of goals scored in a Women’s World Cup game. We’ll analyze λ by the following Gamma-Poisson model where data Yi is the observed number of goals scored in a sample of World Cup games:
@@ -182,12 +181,12 @@ Yi\|λind∼Pois(λ)λ∼Gamma(1,0.25)
 1.  Plot and summarize our prior understanding of λ.
 
 ```{r}
-
+plot_gamma(shape = 1, rate = 1/4, mean = TRUE, mode = TRUE)
 ```
 
 1.  Why is the Poisson model a reasonable choice for our data Yi?
 
-    -   
+    It is count data, so it fits the data type of the Poisson model better. Also, generally fits our prior understanding
 
 2.  The `wwc_2019_matches` data in the **fivethirtyeight** package includes the number of goals scored by the two teams in each 2019 Women’s World Cup match. Define, plot, and discuss the total number of goals scored per game:
 
@@ -198,8 +197,21 @@ wwc_2019_matches <- wwc_2019_matches %>%
   mutate(total_goals = score1 + score2)
 ```
 
+```{r}
+ggplot(data = wwc_2019_matches, aes(x = total_goals)) +
+  geom_histogram()
+```
+
 1.  Plot the posterior model of λ and verify your answer using `summarize_gamma_poisson()`.
 
 ```{r}
+sum(wwc_2019_matches$total_goals)
+```
 
+```{r}
+summarize_gamma_poisson(1,.25, sum_y = 146, n=52)
+```
+
+```{r}
+plot_gamma_poisson(1,.25, sum_y = 146, n=52)
 ```
