@@ -34,6 +34,7 @@ data(bikes)
 ggplot(bikes, aes(x = temp_feel, y = rides)) +
   geom_point(alpha = 0.6, color = "steelblue") +
   geom_smooth(method = "lm", se = TRUE, color = "red", size = 1) +
+  stat_cor() +
   labs(title = "Capital Bikeshare: Temperature vs Ridership",
        subtitle = "Relationship between temperature and daily rides",
        x = "Temperature (°F)",
@@ -41,6 +42,12 @@ ggplot(bikes, aes(x = temp_feel, y = rides)) +
        caption = "Data from Capital Bikeshare") +
   theme_minimal() +
   theme(plot.title = element_text(size = 14, face = "bold"))
+```
+
+```{r}
+ggplot(bikes, aes(x = temp_feel, y = rides)) +
+  geom_point()
+
 ```
 
 ```{r}
@@ -152,8 +159,7 @@ bike_model
 -   **Intercept ((Intercept) = −2195.3, MAD_SD ≈ 354)**\
     This is where the fitted line crosses the y-axis at **0°F**. It’s not meant to be literal (negative rides); it just anchors the line. If you center temperature (e.g., subtract the average temp), the intercept would become “typical rides at an average-temp day,” which is more interpretable.
 
--   **Residual spread (sigma = 1282.5, MAD_SD ≈ 40)**
-    Even **at the same temperature**, daily rides bounce around the line by about **±1,280 rides** on average. This real-world volatility dominates single-day predictions.
+-   **Residual spread (sigma = 1282.5, MAD_SD ≈ 40)** Even **at the same temperature**, daily rides bounce around the line by about **±1,280 rides** on average. This real-world volatility dominates single-day predictions.
 
 “From `stan_glm`, the slope’s 95% **credible interval** is **about \[72.2, 92.2\]** rides per °F (using Median = 82.2 and MAD_SD = 5.1). **Given the model, data, and priors, there’s a 95% probability** that the true slope lies in this range.”
 
@@ -227,12 +233,12 @@ ggplot(data.frame(residuals = residuals, temp_feel = bikes$temp_feel),
 
 The prediction interval of **1,492 to 6,503 rides** for a 75°F day reflects several sources of uncertainty:
 
-1. **Model Uncertainty**: Our linear model assumes a constant relationship between temperature and ridership, but real relationships might be more complex.
+1.  **Model Uncertainty**: Our linear model assumes a constant relationship between temperature and ridership, but real relationships might be more complex.
 
-2. **Parameter Uncertainty**: Even with our priors and data, we're not 100% certain about the exact slope and intercept.
+2.  **Parameter Uncertainty**: Even with our priors and data, we're not 100% certain about the exact slope and intercept.
 
-3. **Natural Variability**: Even at the same temperature, ridership varies due to factors not in our model (weather, events, day of week, etc.).
+3.  **Natural Variability**: Even at the same temperature, ridership varies due to factors not in our model (weather, events, day of week, etc.).
 
-4. **Prediction vs. Estimation**: We're predicting a single day's ridership, which is inherently more uncertain than estimating the average relationship.
+4.  **Prediction vs. Estimation**: We're predicting a single day's ridership, which is inherently more uncertain than estimating the average relationship.
 
 **Key Takeaway**: The wide prediction interval (about 5,000 rides) shows that while temperature is a strong predictor, it's not the only factor driving ridership. For business planning, Capital Bikeshare should prepare for this range of possible outcomes.
