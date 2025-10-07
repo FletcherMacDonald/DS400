@@ -117,7 +117,7 @@ ggplot(concussion_subjects, aes(x = volume)) +
 # Histogram with normal curve overlay
 ggplot(concussion_subjects, aes(x = volume)) + 
   geom_histogram(aes(y = after_stat(density)), bins = 8, 
-                 fill = "greenl", alpha = 0.7, color = "black") +
+                  fill = "lightgreen", alpha = 0.7, color = "black") +
   stat_function(fun = dnorm, 
                 args = list(mean = mean(concussion_subjects$volume), 
                            sd = sd(concussion_subjects$volume)),
