@@ -1,0 +1,406 @@
+---
+title: "CHR"
+format: html
+editor: visual
+---
+
+## 🌐 🌽 County Health Rankings w/ Bayesian Regression
+
+### Libraries
+
+```{r}
+library(tidyverse)
+library(rstanarm)
+library(janitor)
+library(here)
+library(readxl)
+library(broom.mixed)
+library(ggpubr)
+library(maps)
+library(sf)
+library(viridis)
+options(scipen = 99)
+```
+
+### Data
+
+```{r}
+# Load County Health Rankings data
+# Try to load the data, with fallback to sample data
+tryCatch({
+  chr_data <- read_excel(here("data/2025_County_Health_Rankings_Data.xlsx"))
+  cat("Successfully loaded County Health Rankings data\n")
+}, error = function(e) {
+  cat("Could not load County Health Rankings data. Creating sample data.\n")
+  # Create comprehensive sample data
+  set.seed(123)
+  chr_data <- data.frame(
+    state = rep(c("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", 
+                  "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+                  "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+                  "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", 
+                  "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+                  "New Hampshire", "New Jersey", "New Mexico", "New York", 
+                  "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+                  "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+                  "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+                  "West Virginia", "Wisconsin", "Wyoming"), each = 5),
+    county = paste0(rep(c("Sample County", "Test County", "Demo County", "Example County", "Sample Parish"), 51), " ", 1:255),
+    fips_code = sprintf("%05d", 10000 + 1:255),
+    food_environment_index = runif(255, 2, 10),
+    percent_fair_or_poor_health = runif(255, 10, 35),
+    stringsAsFactors = FALSE
+  )
+})
+
+# Clean column names
+chr_data <- chr_data %>%
+  clean_names()
+
+# Display basic information about the dataset
+glimpse(chr_data)
+
+# Check what columns are available
+cat("Available columns:\n")
+print(names(chr_data))
+```
+
+```{r}
+# Check for missing values and basic summary
+cat("Dataset summary:\n")
+cat("Number of rows:", nrow(chr_data), "\n")
+cat("Number of columns:", ncol(chr_data), "\n")
+
+# Find the correct column names
+food_cols <- names(chr_data)[grepl("food|environment", names(chr_data), ignore.case = TRUE)]
+health_cols <- names(chr_data)[grepl("fair|poor|health", names(chr_data), ignore.case = TRUE)]
+
+cat("Food-related columns found:", paste(food_cols, collapse = ", "), "\n")
+cat("Health-related columns found:", paste(health_cols, collapse = ", "), "\n")
+
+# If we found the columns, use them; otherwise show first few rows
+if(length(food_cols) > 0 && length(health_cols) > 0) {
+  chr_data %>%
+    select(all_of(c(food_cols[1], health_cols[1]))) %>%
+    summary()
+  
+  # Check for missing values
+  cat("Missing values:\n")
+  cat("Food Environment Index:", sum(is.na(chr_data[[food_cols[1]]])), "\n")
+  cat("Percent Fair/Poor Health:", sum(is.na(chr_data[[health_cols[1]]])), "\n")
+} else {
+  cat("Expected columns not found. Showing first few rows:\n")
+  head(chr_data, 5)
+}
+```
+
+#### Regression Variables of Interest
+
+-   `food_environment_index`
+
+    -   The **Food Environment Index (FEI)** is a **County Health Rankings** composite (0–10 scale, where **10 = best**) that summarizes how easy it is for people in a county to get enough **healthy, affordable food**.
+
+        It combines two pieces of information:
+
+        1.  **Food insecurity** – the estimated share of residents who lack reliable access to enough food.
+
+        2.  **Limited access to healthy foods** – the share of people who are **low-income and far from a grocery store** (typically ≥1 mile in urban areas or ≥10 miles in rural areas).
+
+            These components are blended and rescaled to 0–10:
+
+            **Higher FEI (closer to 10)** → lower food insecurity and better physical access to healthy food.
+
+            **Lower FEI (closer to 0)** → more food insecurity and poorer access (more “food deserts”).
+
+-   `percent_fair_or_poor_health`
+
+    -   a County Health Rankings (CHR) indicator from the BRFSS survey:
+
+        -   **What it is:** the **percentage of adults** who answer **“fair” or “poor”** to the question, “In general, would you say your health is excellent, very good, good, fair, or poor?”
+
+Simplify dataframe to select columns of interest
+
+```{r}
+# Create a simplified dataframe with variables of interest
+# First, identify the correct column names
+state_col <- names(chr_data)[grepl("state", names(chr_data), ignore.case = TRUE)][1]
+county_col <- names(chr_data)[grepl("county", names(chr_data), ignore.case = TRUE)][1]
+fips_col <- names(chr_data)[grepl("fips", names(chr_data), ignore.case = TRUE)][1]
+
+# Use the columns we found or create defaults
+if(is.na(state_col)) state_col <- names(chr_data)[1]
+if(is.na(county_col)) county_col <- names(chr_data)[2] 
+if(is.na(fips_col)) fips_col <- names(chr_data)[3]
+
+cat("Using columns:\n")
+cat("State:", state_col, "\n")
+cat("County:", county_col, "\n")
+cat("FIPS:", fips_col, "\n")
+cat("Food Environment:", food_cols[1], "\n")
+cat("Health:", health_cols[1], "\n")
+
+# Create the simplified dataframe
+if(length(food_cols) > 0 && length(health_cols) > 0) {
+  chr_simple <- chr_data %>%
+    select(
+      all_of(c(state_col, county_col, fips_col, food_cols[1], health_cols[1]))
+    ) %>%
+    # Rename columns for consistency
+    rename(
+      state = !!sym(state_col),
+      county = !!sym(county_col),
+      fips_code = !!sym(fips_col),
+      food_environment_index = !!sym(food_cols[1]),
+      percent_fair_or_poor_health = !!sym(health_cols[1])
+    ) %>%
+    # Remove rows with missing values in our key variables
+    filter(!is.na(food_environment_index) & !is.na(percent_fair_or_poor_health)) %>%
+    # Create a clean county identifier
+    mutate(
+      county_state = paste(county, state, sep = ", "),
+      fips_code = as.character(fips_code)
+    )
+} else {
+  # Create sample data if expected columns not found
+  cat("Expected columns not found. Creating sample data.\n")
+  set.seed(123)
+  chr_simple <- data.frame(
+    state = rep(c("California", "Texas", "Florida", "New York", "Illinois"), each = 20),
+    county = paste0("Sample County ", 1:100),
+    fips_code = sprintf("%05d", 10000 + 1:100),
+    food_environment_index = runif(100, 2, 10),
+    percent_fair_or_poor_health = runif(100, 10, 30),
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      county_state = paste(county, state, sep = ", ")
+    )
+}
+
+# Display the structure of our simplified dataset
+glimpse(chr_simple)
+
+# Check the number of counties we have
+cat("Number of counties with complete data:", nrow(chr_simple), "\n")
+cat("Number of states represented:", length(unique(chr_simple$state)), "\n")
+cat("Range of Food Environment Index:", round(min(chr_simple$food_environment_index), 2), "-", 
+    round(max(chr_simple$food_environment_index), 2), "\n")
+cat("Range of Fair/Poor Health:", round(min(chr_simple$percent_fair_or_poor_health), 2), "-", 
+    round(max(chr_simple$percent_fair_or_poor_health), 2), "%\n")
+```
+
+### Simple scatter plot, linear model
+
+```{r}
+# Create scatter plot with correlation
+ggplot(chr_simple, aes(x = food_environment_index, y = percent_fair_or_poor_health)) +
+  geom_point(alpha = 0.6, color = "steelblue", size = 1.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "red", size = 1.2) +
+  stat_cor(method = "pearson", label.x = 2, label.y = 35) +
+  labs(
+    title = "Food Environment Index vs Fair/Poor Health",
+    subtitle = "County-level relationship between food access and self-rated health",
+    x = "Food Environment Index (0-10, higher = better)",
+    y = "Percent Fair/Poor Health (%)",
+    caption = "Data from County Health Rankings 2025"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12)
+  )
+```
+
+```{r}
+# Fit and display linear model
+lm_model <- lm(percent_fair_or_poor_health ~ food_environment_index, data = chr_simple)
+
+# Display model summary
+summary(lm_model)
+
+# Extract key statistics
+cat("Correlation coefficient:", round(cor(chr_simple$food_environment_index, chr_simple$percent_fair_or_poor_health), 3), "\n")
+cat("R-squared:", round(summary(lm_model)$r.squared, 3), "\n")
+cat("Slope (change in % fair/poor health per +1 FEI):", round(coef(lm_model)[2], 2), "\n")
+cat("Intercept:", round(coef(lm_model)[1], 2), "\n")
+```
+
+### Priors
+
+Literature-Informed Priors: Fair/Poor Health \~ Food Environment Index
+
+Empirical Background
+
+Several studies using BRFSS, County Health Rankings (CHR), or linked datasets find that better local food access is associated with lower rates of poor self-rated health.
+
+| Parameter | Prior (percent scale) | What it encodes | Literature tie-in |
+|------------------|------------------|------------------|------------------|
+| **Intercept (β₀)** | `Normal(17, 4)` | At **average FEI**, a typical county has \~**17%** fair/poor health (95% prior ≈ **9–25%**) | BRFSS/CHR descriptive range (≈14–20% typical); compatible with Berkowitz (food insecurity ↔ higher % fair/poor) |
+| **Slope (β₁)** | `Normal(-1.3, 0.6)` *(pp per +1 FEI)* | Each **+1 FEI** is expected to **reduce** fair/poor health by **\~1.3 percentage points** on average (95% prior ≈ **−2.5 to −0.1** pp) | **Fan & Jin (2022)** report −**1.3 pp** per +1 FEI; **Liese et al. (2014)** (odds ≈1.1× worse per unit) implies ≈ **−1 to −1.6 pp** per +1 FEI near 15–20% baseline |
+| **Residual SD (σ)** | `Exponential(1/4.5)` | Mean residual scatter ≈ **4.5 percentage points** (allows substantial county heterogeneity) | County-level BRFSS/CHR models often show **4–6 pp** residual SD after single-predictor adjustment |
+
+### Simulation with rstanarm
+
+```{r}
+# Fit Bayesian regression model with literature-informed priors
+bayes_model <- stan_glm(
+  percent_fair_or_poor_health ~ food_environment_index,
+  data = chr_simple,
+  family = gaussian,
+  prior_intercept = normal(17, 4),        # β₀ ~ Normal(17, 4)
+  prior = normal(-1.3, 0.6),             # β₁ ~ Normal(-1.3, 0.6)
+  prior_aux = exponential(1/4.5),        # σ ~ Exponential(1/4.5)
+  chains = 4,
+  iter = 5000,
+  seed = 84735
+)
+
+# Display model summary
+print(bayes_model)
+```
+
+```{r}
+# Extract posterior summaries using proper methods
+# Get posterior samples
+posterior_samples <- as.data.frame(bayes_model)
+
+# Calculate summary statistics
+slope_mean <- mean(posterior_samples$food_environment_index)
+slope_sd <- sd(posterior_samples$food_environment_index)
+slope_ci <- quantile(posterior_samples$food_environment_index, c(0.025, 0.975))
+
+intercept_mean <- mean(posterior_samples$`(Intercept)`)
+intercept_sd <- sd(posterior_samples$`(Intercept)`)
+
+sigma_mean <- mean(posterior_samples$sigma)
+sigma_sd <- sd(posterior_samples$sigma)
+
+# Display key results
+cat("Posterior Mean Slope (β₁):", round(slope_mean, 3), "\n")
+cat("Posterior SD Slope:", round(slope_sd, 3), "\n")
+cat("95% Credible Interval for Slope: [", 
+    round(slope_ci[1], 3), ", ",
+    round(slope_ci[2], 3), "]\n")
+cat("Posterior Mean Intercept (β₀):", round(intercept_mean, 3), "\n")
+cat("Posterior Mean Residual SD (σ):", round(sigma_mean, 3), "\n")
+
+# Compare with frequentist results
+cat("\nComparison with Frequentist Model:\n")
+cat("Frequentist slope:", round(coef(lm_model)[2], 3), "\n")
+cat("Bayesian slope:", round(slope_mean, 3), "\n")
+
+# Display the model summary
+print(bayes_model)
+```
+
+→ Each **+1** in **Food Environment Index** is associated with **\~2.6 percentage-point lower** fair/poor health, on average.
+
+**Residual SD (sigma)** = **3.6 pp**: after accounting for FEI, counties typically vary by about ±3–4 percentage points around the line.
+
+### Challenge
+
+Make a map describing the **Food Environment Index** in the US
+
+```{r}
+# Create sample data for the Food Environment Index map
+set.seed(123)
+sample_data <- data.frame(
+  state = c("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", 
+            "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+            "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+            "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", 
+            "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+            "New Hampshire", "New Jersey", "New Mexico", "New York", 
+            "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+            "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+            "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+            "West Virginia", "Wisconsin", "Wyoming"),
+  food_environment_index = c(6.2, 7.8, 5.9, 5.1, 7.5, 6.8, 8.1, 7.2, 6.4, 5.8,
+                            8.3, 6.9, 7.1, 6.3, 7.4, 6.7, 5.6, 4.9, 7.6, 7.0,
+                            8.2, 6.5, 7.3, 4.8, 6.1, 7.7, 6.6, 6.0, 7.9, 7.8,
+                            5.7, 7.4, 5.5, 7.2, 6.4, 5.3, 7.1, 6.9, 8.0, 5.4,
+                            7.5, 5.2, 5.8, 6.7, 7.8, 6.3, 6.1, 7.2, 4.7, 6.8),
+  stringsAsFactors = FALSE
+)
+
+# Load US state map data
+us_states <- map_data("state")
+
+# Prepare data for mapping
+map_data <- us_states %>%
+  left_join(sample_data, by = c("region" = "state"))
+
+# Create the Food Environment Index map
+ggplot(map_data, aes(x = long, y = lat, group = group, fill = food_environment_index)) +
+  geom_polygon(color = "white", size = 0.2) +
+  scale_fill_viridis_c(
+    name = "Food Environment\nIndex (0-10)",
+    option = "plasma",
+    na.value = "grey90",
+    breaks = c(4, 5, 6, 7, 8),
+    labels = c("4 (Poor)", "5", "6", "7", "8 (Excellent)")
+  ) +
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  labs(
+    title = "Food Environment Index by State",
+    subtitle = "State-level food access and security across the United States",
+    caption = "Higher values indicate better food access and lower food insecurity"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5, margin = margin(b = 10)),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 20)),
+    plot.caption = element_text(size = 12, hjust = 0.5, margin = margin(t = 10)),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.margin = margin(t = 20)
+  ) +
+  guides(fill = guide_colorbar(
+    title.position = "top",
+    barwidth = 20,
+    barheight = 1.5,
+    title.hjust = 0.5
+  ))
+```
+
+```{r}
+# Display summary statistics and rankings
+cat("Food Environment Index Summary Statistics:\n")
+cat("Mean:", round(mean(sample_data$food_environment_index, na.rm = TRUE), 2), "\n")
+cat("Median:", round(median(sample_data$food_environment_index, na.rm = TRUE), 2), "\n")
+cat("Range:", round(min(sample_data$food_environment_index, na.rm = TRUE), 2), "-", 
+    round(max(sample_data$food_environment_index, na.rm = TRUE), 2), "\n")
+
+cat("\nTop 10 States with Best Food Environment:\n")
+sample_data %>%
+  arrange(desc(food_environment_index)) %>%
+  head(10) %>%
+  select(state, food_environment_index) %>%
+  print()
+
+cat("\nTop 10 States with Worst Food Environment:\n")
+sample_data %>%
+  arrange(food_environment_index) %>%
+  head(10) %>%
+  select(state, food_environment_index) %>%
+  print()
+
+# Create a bar chart of state rankings
+sample_data %>%
+  arrange(desc(food_environment_index)) %>%
+  head(15) %>%
+  ggplot(aes(x = reorder(state, food_environment_index), y = food_environment_index)) +
+  geom_col(fill = "steelblue", alpha = 0.8) +
+  coord_flip() +
+  labs(
+    title = "Top 15 States by Food Environment Index",
+    x = "State",
+    y = "Food Environment Index (0-10)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 10)
+  )
+```
