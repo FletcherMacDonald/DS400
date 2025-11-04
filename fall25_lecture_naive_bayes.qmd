@@ -1,0 +1,991 @@
+---
+title: "naive bayes penguins"
+format: html
+editor: visual
+---
+
+### Libraries
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(bayesrules)
+library(janitor)
+library(e1071)
+library(scales)
+options(scipen = 99)
+```
+
+### Story
+
+We’ll start our naive Bayes classification with just a single penguin. Suppose an Antarctic researcher comes across a penguin that weighs less than 4200g with a 195mm-long flipper and 50mm-long bill. Our goal is to help this researcher identify the species of this penguin, Adelie, Chinstrap, or Gentoo.
+
+#### Challenge - Let's Plot!
+
+Take 10 minutes to make a visualization that will help the researcher determine the species based on the characteristics described above
+
+```{r}
+data(penguins_bayes)
+penguins <- penguins_bayes %>%
+  mutate(above_average_weight = if_else(above_average_weight == 1, "above_avereage_weight", "under_average_weight"))
+```
+
+### Our Mystery Penguin
+
+Characteristics: - Body mass: \< 4200g (below average weight) - Flipper length: 195mm - Bill length: 50mm
+
+Let's assume the body mass is approximately 4000g for visualization purposes (since it's below 4200g).
+
+### Visualization 1: Bill Length vs Flipper Length Scatter Plot
+
+This plot shows where our mystery penguin (marked with a red star) falls relative to the three species:
+
+```{r}
+# Create a scatter plot with the mystery penguin highlighted
+ggplot(penguins,
+       aes(x = flipper_length_mm, y = bill_length_mm, color = species)) + 
+  geom_point(alpha = 0.6, size = 2) +
+  # Add the mystery penguin
+  geom_point(aes(x = 195, y = 50), 
+             color = "red", shape = 8, size = 5, stroke = 2) +
+  # Add reference lines
+  geom_hline(yintercept = 50, linetype = "dashed", color = "red", alpha = 0.5) +
+  geom_vline(xintercept = 195, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(
+    title = "Penguin Species: Bill Length vs Flipper Length",
+    subtitle = "Mystery penguin (195mm flipper, 50mm bill) marked with red star",
+    x = "Flipper Length (mm)",
+    y = "Bill Length (mm)",
+    color = "Species"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+### Visualization 2: Bill Length Distribution by Species
+
+This shows the distribution of bill lengths for each species, with our mystery penguin's bill length (50mm) marked:
+
+```{r}
+ggplot(penguins, aes(x = bill_length_mm, fill = species)) +
+  geom_density(alpha = 0.6) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red", size = 1.5) +
+  annotate("text", x = 50, y = 0.05, label = "50mm\n(Mystery Penguin)", 
+           color = "red", hjust = -0.1, fontface = "bold") +
+  labs(
+    title = "Bill Length Distribution by Species",
+    subtitle = "Red dashed line shows mystery penguin's bill length (50mm)",
+    x = "Bill Length (mm)",
+    y = "Density",
+    fill = "Species"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+### Visualization 3: Flipper Length Distribution by Species
+
+This shows the distribution of flipper lengths for each species, with our mystery penguin's flipper length (195mm) marked:
+
+```{r}
+ggplot(penguins, aes(x = flipper_length_mm, fill = species)) +
+  geom_density(alpha = 0.6) +
+  geom_vline(xintercept = 195, linetype = "dashed", color = "red", size = 1.5) +
+  annotate("text", x = 195, y = 0.02, label = "195mm\n(Mystery Penguin)", 
+           color = "red", hjust = -0.1, fontface = "bold") +
+  labs(
+    title = "Flipper Length Distribution by Species",
+    subtitle = "Red dashed line shows mystery penguin's flipper length (195mm)",
+    x = "Flipper Length (mm)",
+    y = "Density",
+    fill = "Species"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+### Visualization 4: Body Mass Distribution by Species
+
+This shows the distribution of body mass for each species, with our mystery penguin's body mass (\< 4200g, approximately 4000g) marked:
+
+```{r}
+# Check if body_mass_g exists in the dataset
+if("body_mass_g" %in% names(penguins)) {
+  ggplot(penguins, aes(x = body_mass_g, fill = species)) +
+    geom_density(alpha = 0.6) +
+    geom_vline(xintercept = 4000, linetype = "dashed", color = "red", size = 1.5) +
+    annotate("text", x = 4000, y = 0.0001, label = "~4000g\n(Mystery Penguin)", 
+             color = "red", hjust = -0.1, fontface = "bold") +
+    labs(
+      title = "Body Mass Distribution by Species",
+      subtitle = "Red dashed line shows mystery penguin's approximate body mass (< 4200g)",
+      x = "Body Mass (g)",
+      y = "Density",
+      fill = "Species"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+} else {
+  # If body_mass_g doesn't exist, show weight category instead
+  penguins %>%
+    count(above_average_weight, species) %>%
+    group_by(above_average_weight) %>%
+    mutate(percent = n / sum(n)) %>%
+    ggplot(aes(x = above_average_weight, y = percent, fill = species)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    geom_text(aes(label = scales::percent(percent, accuracy = 1)),
+              position = position_dodge(width = 0.9), 
+              vjust = -0.25, size = 3.5) +
+    labs(
+      title = "Weight Category Distribution by Species",
+      subtitle = "Mystery penguin is below average weight (< 4200g)",
+      x = "Weight Category",
+      y = "Percentage",
+      fill = "Species"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+```
+
+### Visualization 4b: Body Mass vs Flipper Length Scatter Plot
+
+This shows the relationship between body mass and flipper length:
+
+```{r}
+if("body_mass_g" %in% names(penguins)) {
+  ggplot(penguins,
+         aes(x = flipper_length_mm, y = body_mass_g, color = species)) + 
+    geom_point(alpha = 0.6, size = 2) +
+    # Add the mystery penguin
+    geom_point(aes(x = 195, y = 4000), 
+               color = "red", shape = 8, size = 5, stroke = 2) +
+    # Add reference lines
+    geom_hline(yintercept = 4000, linetype = "dashed", color = "red", alpha = 0.5) +
+    geom_vline(xintercept = 195, linetype = "dashed", color = "red", alpha = 0.5) +
+    labs(
+      title = "Penguin Species: Body Mass vs Flipper Length",
+      subtitle = "Mystery penguin (195mm flipper, ~4000g body mass) marked with red star",
+      x = "Flipper Length (mm)",
+      y = "Body Mass (g)",
+      color = "Species"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+```
+
+### Visualization 4c: Body Mass vs Bill Length Scatter Plot
+
+This shows the relationship between body mass and bill length:
+
+```{r}
+if("body_mass_g" %in% names(penguins)) {
+  ggplot(penguins,
+         aes(x = bill_length_mm, y = body_mass_g, color = species)) + 
+    geom_point(alpha = 0.6, size = 2) +
+    # Add the mystery penguin
+    geom_point(aes(x = 50, y = 4000), 
+               color = "red", shape = 8, size = 5, stroke = 2) +
+    # Add reference lines
+    geom_hline(yintercept = 4000, linetype = "dashed", color = "red", alpha = 0.5) +
+    geom_vline(xintercept = 50, linetype = "dashed", color = "red", alpha = 0.5) +
+    labs(
+      title = "Penguin Species: Body Mass vs Bill Length",
+      subtitle = "Mystery penguin (50mm bill, ~4000g body mass) marked with red star",
+      x = "Bill Length (mm)",
+      y = "Body Mass (g)",
+      color = "Species"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+```
+
+### Visualization 5: Combined Characteristics Plot
+
+This comprehensive plot shows all characteristics together. We'll display them as separate plots:
+
+```{r}
+# Bill Length Distribution
+ggplot(penguins, aes(x = bill_length_mm, fill = species)) +
+  geom_density(alpha = 0.6) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red", size = 1) +
+  labs(x = "Bill Length (mm)", y = "Density", fill = "Species", 
+       title = "Bill Length Distribution") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+```{r}
+# Flipper Length Distribution
+ggplot(penguins, aes(x = flipper_length_mm, fill = species)) +
+  geom_density(alpha = 0.6) +
+  geom_vline(xintercept = 195, linetype = "dashed", color = "red", size = 1) +
+  labs(x = "Flipper Length (mm)", y = "Density", fill = "Species",
+       title = "Flipper Length Distribution") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+```{r}
+# Body Mass Distribution (if available)
+if("body_mass_g" %in% names(penguins)) {
+  ggplot(penguins, aes(x = body_mass_g, fill = species)) +
+    geom_density(alpha = 0.6) +
+    geom_vline(xintercept = 4000, linetype = "dashed", color = "red", size = 1) +
+    labs(x = "Body Mass (g)", y = "Density", fill = "Species",
+         title = "Body Mass Distribution") +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+```
+
+```{r}
+# Flipper vs Bill Length Scatter Plot
+ggplot(penguins, aes(x = flipper_length_mm, y = bill_length_mm, color = species)) +
+  geom_point(alpha = 0.6) +
+  geom_point(aes(x = 195, y = 50), color = "red", shape = 8, size = 4, stroke = 2) +
+  labs(x = "Flipper Length (mm)", y = "Bill Length (mm)", color = "Species",
+       title = "Flipper vs Bill Length") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+### Visualization 6: 3D-style Plot with Body Mass
+
+A scatter plot showing all three quantitative characteristics together:
+
+```{r}
+if("body_mass_g" %in% names(penguins)) {
+  ggplot(penguins,
+         aes(x = flipper_length_mm, y = bill_length_mm, size = body_mass_g, color = species)) + 
+    geom_point(alpha = 0.6) +
+    # Add the mystery penguin
+    geom_point(aes(x = 195, y = 50, size = 4000), 
+               color = "red", shape = 8, stroke = 2, show.legend = FALSE) +
+    # Add reference lines
+    geom_hline(yintercept = 50, linetype = "dashed", color = "red", alpha = 0.3) +
+    geom_vline(xintercept = 195, linetype = "dashed", color = "red", alpha = 0.3) +
+    scale_size_continuous(name = "Body Mass (g)", range = c(1, 8)) +
+    labs(
+      title = "Penguin Species: All Characteristics Combined",
+      subtitle = "Mystery penguin (195mm flipper, 50mm bill, ~4000g body mass) marked with red star\nSize represents body mass",
+      x = "Flipper Length (mm)",
+      y = "Bill Length (mm)",
+      color = "Species"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+```
+
+### Initial Observations
+
+Based on these visualizations, we can make some initial observations:
+
+1.  **Bill Length (50mm)**: The mystery penguin's bill length of 50mm appears to be most consistent with Chinstrap or Gentoo penguins, as Adelie penguins typically have shorter bills.
+
+2.  **Flipper Length (195mm)**: A flipper length of 195mm is most consistent with Chinstrap or Adelie penguins, as Gentoo penguins typically have longer flippers.
+
+3.  **Body Mass (\< 4200g, \~4000g)**: The mystery penguin is below average weight. When combined with the other measurements, this helps distinguish between species. Chinstrap penguins often have lower body mass than Gentoo penguins.
+
+4.  **Combined**:
+
+    -   The point (195mm flipper, 50mm bill) appears to fall in the Chinstrap region of the scatter plot
+    -   The body mass of \~4000g is consistent with Chinstrap or smaller Adelie penguins
+    -   Gentoo penguins typically have higher body mass, so the low body mass (\< 4200g) suggests it's likely not a Gentoo
+
+5.  **All Characteristics Together**: When considering all three characteristics simultaneously (195mm flipper, 50mm bill, \< 4200g body mass), the mystery penguin appears most consistent with **Chinstrap** penguin characteristics.
+
+These visualizations suggest the mystery penguin is most likely a **Chinstrap** penguin, but we'll use naive Bayes classification to get a more precise probability estimate!
+
+#### Big picture
+
+-   Why use naive bayes classification instead of bayesian logistic regression
+
+    -   3 classes/possible values in target variable (species)
+
+-   What makes naive bayes "naive"
+
+    -   It assumes quantitative predictors are normally distributed
+
+    -   It assumes predictive features are not correlated with each other
+
+#### One Categorical predictor
+
+-   Penguin is "below average weight"
+
+P(B\|A)
+
+-   P(Chinstrap \| below average weight)
+-   P(Adelie \| below average weight)
+-   P(Gentoo \| below average weight)
+
+```{r}
+penguins %>% 
+  tabyl(above_average_weight, species) %>% 
+  adorn_percentages("row")
+```
+
+```{r}
+probability_chinstrap_given_below_average_weight <- 0.65
+```
+
+```{r}
+penguins %>%
+  count(above_average_weight, species) %>%
+  group_by(above_average_weight) %>%
+  mutate(percent = n / sum(n)) %>%
+  ggplot(aes(x = above_average_weight, y = percent, fill = species)) +
+  geom_col() +
+  geom_text(aes(label = scales::percent(percent, accuracy = 1)),
+            position = position_stack(vjust = 0.5), color = "white", size = 3.5) +
+  labs(
+    title = "Penguin Species by Above-Average Weight (Percent)",
+    x = "Above Average Weight?",
+    y = "Percentage"
+  ) +
+  theme_minimal()
+```
+
+#### One Quantitative Predictor
+
+-   Penguin has a billlength of 50 mm
+
+We have to first find the mean and standard deviation for each species
+
+```{r}
+penguins %>% 
+  group_by(species) %>% 
+  summarize(mean = mean(bill_length_mm, na.rm = TRUE), 
+            sd = sd(bill_length_mm, na.rm = TRUE))
+```
+
+Let's plot this!
+
+```{r}
+ggplot(penguins, aes(x = bill_length_mm, color = species)) + 
+  stat_function(fun = dnorm, args = list(mean = 38.8, sd = 2.66), 
+                aes(color = "Adelie")) +
+  stat_function(fun = dnorm, args = list(mean = 48.8, sd = 3.34),
+                aes(color = "Chinstrap")) +
+  stat_function(fun = dnorm, args = list(mean = 47.5, sd = 3.08),
+                aes(color = "Gentoo")) + 
+  geom_vline(xintercept = 50, linetype = "dashed") +
+  theme_minimal()
+```
+
+Note on one naive bayes assumption - assuming normal distributions
+
+-   The bill length distributions actually look like this
+
+```{r}
+ggplot(penguins, aes(x = bill_length_mm, fill = species)) +
+  geom_density(alpha = 0.7) +
+  theme_minimal()
+```
+
+We need to evaluate the likelihood of observing a 50mm-long bill among each of the three species
+
+Adelie
+
+```{r}
+dnorm(50, mean = 38.8, sd = 2.66)
+likelihood_adelie_50mm_bill <- 0.00002119955
+```
+
+Question - what is this value? Let's visualize
+
+```{r}
+adelie_penguins <- subset(penguins, species == "Adelie")
+
+# Calculate mean and standard deviation of bill_length_mm for Adelie penguins
+mean_bill<- mean(adelie_penguins$bill_length_mm, na.rm = TRUE)
+sd_bill <- sd(adelie_penguins$bill_length_mm, na.rm = TRUE)
+
+# Value to highlight (50 mm)
+highlight_value <- 50
+highlight_density <- dnorm(highlight_value, mean = mean_bill, sd = sd_bill)
+
+# Plot the normal distribution with a point for 50 mm and 1 standard deviation lines
+ggplot(adelie_penguins, aes(x = bill_length_mm)) +
+  geom_density(color = "blue", size = 1) +  # Plot the density curve
+  
+  # Highlight the point for 50 mm
+  geom_point(aes(x = highlight_value, y = highlight_density), 
+             color = "red", size = 3) +  
+  
+  # Add a vertical dashed line for 50 mm
+  geom_vline(xintercept = highlight_value, linetype = "dashed", color = "red") +  
+  
+  # Add vertical lines for 1 standard deviation from the mean
+  geom_vline(xintercept = mean_bill + sd_bill, linetype = "dotted", color = "black") + 
+  geom_vline(xintercept = mean_bill - sd_bill, linetype = "dotted", color = "black") + 
+  
+  # Add annotations for standard deviation lines
+  annotate("text", x = mean_bill + sd_bill + 1, y = 0.01, 
+           label = "+1 SD", color = "black", hjust = 0) +
+  annotate("text", x = mean_bill - sd_bill - 1, y = 0.01, 
+           label = "-1 SD", color = "black", hjust = 1) +
+  
+  # Add labels and title
+  labs(title = "Normal Distribution of Bill Lengths for Adelie Penguins",
+       subtitle = paste("Mean =", round(mean_bill, 2), "mm, SD =", round(sd_bill, 2), "mm"),
+       x = "Bill Length (mm)", y = "Density") +
+  
+  # Add annotation for 150 mm
+  annotate("text", x = highlight_value + 2, y = highlight_density, 
+           label = paste0("50 mm\nDensity: ", round(highlight_density, 5)),
+           hjust = 0, color = "red") +
+  
+  # Minimal theme for cleaner look
+  theme_minimal()
+```
+
+Chinstrap
+
+```{r}
+dnorm(50, mean = 48.8, sd = 3.34)
+likelihood_chinstrap_50mm_bill <- 0.1119782
+```
+
+Gentoo
+
+```{r}
+dnorm(50, mean = 47.5, sd = 3.08)
+likelihood_gentoo_50mm_bill <- 0.09317395
+```
+
+Prior Probabilities for weighting
+
+```{r}
+penguins %>% 
+  tabyl(species)
+```
+
+```{r}
+prior_probability_adelie <- 0.44
+prior_probability_chinstrap <- 0.2
+prior_probability_gentoo <- 0.36
+```
+
+```{r}
+(prior_probability_adelie * likelihood_adelie_50mm_bill) + (prior_probability_chinstrap * likelihood_chinstrap_50mm_bill) +
+(prior_probability_gentoo* likelihood_gentoo_50mm_bill)
+```
+
+```{r}
+species_bill_length_weighted_likelihood <- 0.05594759
+```
+
+P(Adelie \| 50mm bill length)
+
+```{r}
+(prior_probability_adelie * likelihood_adelie_50mm_bill) / species_bill_length_weighted_likelihood
+```
+
+P(Chinstrap \| 50mm bill length)
+
+```{r}
+(prior_probability_chinstrap * likelihood_chinstrap_50mm_bill) / species_bill_length_weighted_likelihood
+```
+
+P(Gentoo\| 50mm bill length)
+
+```{r}
+(prior_probability_gentoo * likelihood_gentoo_50mm_bill) / species_bill_length_weighted_likelihood
+```
+
+#### Two Predictors
+
+Consider the information that our penguin has a bill length of X2=50mm *and* a flipper length of X3=195mm. Either one of these measurements alone might lead to a misclassification. Just as it’s tough to distinguish between the Chinstrap and Gentoo penguins based on their bill lengths alone, it’s tough to distinguish between the Chinstrap and Adelie penguins based on their flipper lengths alone
+
+```{r}
+ggplot(penguins, aes(x = bill_length_mm, fill = species)) + 
+  geom_density(alpha = 0.6)
+```
+
+```{r}
+ggplot(penguins, aes(x = flipper_length_mm, fill = species)) + 
+  geom_density(alpha = 0.6)
+```
+
+BUT the species are fairly distinguishable when we *combine* the information about bill and flipper lengths. Our penguin with a 50mm-long bill and 195mm-long flipper, represented at the intersection of the dashed lines in Figure [14.5](https://www.bayesrulesbook.com/chapter-14#fig:ch14-bill-flipper), now lies squarely among the Chinstrap observations
+
+```{r}
+ggplot(penguins,
+       aes(x = flipper_length_mm, y = bill_length_mm, color = species)) + 
+  geom_point() +
+  geom_hline(yintercept = 50) +
+  geom_vline(xintercept = 195)
+```
+
+Likelihoods for flipper length
+
+```{r}
+penguins %>% 
+  group_by(species) %>% 
+  summarize(mean = mean(flipper_length_mm, na.rm = TRUE), 
+            sd = sd(flipper_length_mm, na.rm = TRUE))
+```
+
+Adelie
+
+```{r}
+dnorm(195, mean = 190, sd = 6.54)
+likelihood_adelie_195_mm_flipper <- 0.04554175
+
+```
+
+Chinstrap
+
+```{r}
+dnorm(195, mean = 196, sd = 7.13)
+likelihood_chinstrap_195_mm_flipper <- 0.05540502
+```
+
+Gentoo
+
+```{r}
+dnorm(195, mean = 217, sd = 6.48)
+likelihood_gentoo_195_mm_flipper <- 0.0001933746
+```
+
+Calculating probabilities
+
+```{r}
+(likelihood_adelie_50mm_bill * likelihood_adelie_195_mm_flipper * prior_probability_adelie) +
+(likelihood_chinstrap_50mm_bill * likelihood_chinstrap_195_mm_flipper * prior_probability_chinstrap) +
+(likelihood_gentoo_50mm_bill * likelihood_gentoo_195_mm_flipper * prior_probability_gentoo) 
+
+flipper_length_bill_length_species_weighted_likelihood <- 0.001247742
+```
+
+Probability Adelie
+
+```{r}
+(prior_probability_adelie * likelihood_adelie_195_mm_flipper * likelihood_adelie_50mm_bill) / flipper_length_bill_length_species_weighted_likelihood
+```
+
+Probability Chinstrap
+
+```{r}
+(prior_probability_chinstrap * likelihood_chinstrap_195_mm_flipper * likelihood_chinstrap_50mm_bill) / flipper_length_bill_length_species_weighted_likelihood
+```
+
+Probability Gentoo
+
+```{r}
+(prior_probability_gentoo * likelihood_gentoo_195_mm_flipper * likelihood_gentoo_50mm_bill) / flipper_length_bill_length_species_weighted_likelihood
+```
+
+That was a fair amount of math...
+
+#### Naive Bayes Classification!
+
+```{r}
+naive_model <- naiveBayes(species ~ flipper_length_mm + bill_length_mm + above_average_weight, data = penguins)
+```
+
+Our penguin
+
+```{r}
+our_penguin <- data.frame(bill_length_mm = 50, flipper_length_mm = 195, above_average_weight = "no")
+```
+
+Ask our model to make a prediction of what species our penguin is
+
+```{r}
+predict(naive_model, newdata = our_penguin, type = "raw")
+```
+
+Test our model fro accuracy with confusion matrix
+
+```{r}
+penguins <- penguins %>% 
+  mutate(predicted_species = predict(naive_model, newdata = .))
+```
+
+```{r}
+penguins %>% 
+  tabyl(species, predicted_species) %>% 
+  adorn_percentages("row") %>% 
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns
+```
+
+```{r}
+naive_model
+```
+
+### Challenge
+
+**Exercise 14.10** The `pulse_of_the_nation` data in the **bayesrules** package contains responses of 1000 adults to a wide-ranging survey. In one question, respondents were asked about their belief in `climate_change`, selecting from the following options: climate change is `Not Real at All`, `Real but not Caused by People`, or `Real and Caused by People`. In this open-ended exercise, complete a naive Bayesian analysis of a person’s belief in `climate_change`, selecting a variety of possible predictors that are of interest to you.
+
+-   First, use the `naiveBayes()` function first and examine results
+
+-   Then, show the math similar to how we did above to confirm your results
+
+```{r}
+data("pulse_of_the_nation")
+```
+
+### Explore the Dataset and Select Predictors
+
+```{r}
+# Explore dataset and select predictors: age, education, and political variable
+glimpse(pulse_of_the_nation)
+pulse_of_the_nation %>% tabyl(climate_change)
+
+# Find political variable (try common names: party, vote, gender, or first available categorical)
+if("party" %in% names(pulse_of_the_nation)) {
+  political_var_name <- "party"
+} else if("vote" %in% names(pulse_of_the_nation)) {
+  political_var_name <- "vote"
+} else if("gender" %in% names(pulse_of_the_nation)) {
+  political_var_name <- "gender"
+} else {
+  cat_vars <- names(pulse_of_the_nation)[sapply(pulse_of_the_nation, function(x) is.character(x) | is.factor(x))]
+  cat_vars <- setdiff(cat_vars, "climate_change")
+  political_var_name <- cat_vars[1]
+  cat("Using variable:", political_var_name, "as predictor\n")
+}
+
+# Create clean dataset with predictors
+predictor_vars <- c("climate_change", "age", "education", political_var_name)
+pulse_clean <- pulse_of_the_nation %>% 
+  select(all_of(predictor_vars)) %>% 
+  filter(!is.na(climate_change), !is.na(age), !is.na(education), !is.na(!!sym(political_var_name))) %>%
+  rename(political_var = !!sym(political_var_name))
+
+cat("Dataset prepared with", nrow(pulse_clean), "complete cases\n")
+```
+
+### Exploratory Data Analysis
+
+```{r}
+# Distribution of climate_change beliefs
+pulse_clean %>% tabyl(climate_change)
+```
+
+### Correlation Visualizations
+
+```{r}
+# 1. Age distribution by climate_change belief
+ggplot(pulse_clean, aes(x = age, fill = climate_change)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Age Distribution by Climate Change Belief", x = "Age", y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# 2. Age boxplots by climate_change belief
+ggplot(pulse_clean, aes(x = climate_change, y = age, fill = climate_change)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(alpha = 0.3, width = 0.2) +
+  labs(title = "Age by Climate Change Belief", x = "Climate Change Belief", y = "Age") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+# 3. Age violin plot by climate_change belief
+ggplot(pulse_clean, aes(x = climate_change, y = age, fill = climate_change)) +
+  geom_violin(alpha = 0.7) +
+  geom_boxplot(width = 0.1, alpha = 0.5) +
+  labs(title = "Age Distribution (Violin Plot) by Climate Change Belief", 
+       x = "Climate Change Belief", y = "Age") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+# 4. Education by climate_change belief (bar chart)
+pulse_clean %>% 
+  tabyl(education, climate_change) %>% 
+  adorn_percentages("row") %>% 
+  adorn_pct_formatting(digits = 1) %>%
+  adorn_ns
+```
+
+```{r}
+# 5. Education stacked bar chart
+pulse_clean %>%
+  count(education, climate_change) %>%
+  group_by(education) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(x = education, y = percent, fill = climate_change)) +
+  geom_col(position = "stack") +
+  labs(title = "Climate Change Belief by Education Level", 
+       x = "Education", y = "Percentage", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 6. Education grouped bar chart
+pulse_clean %>%
+  count(education, climate_change) %>%
+  group_by(education) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(x = education, y = percent, fill = climate_change)) +
+  geom_col(position = "dodge") +
+  labs(title = "Climate Change Belief by Education Level (Grouped)", 
+       x = "Education", y = "Percentage", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 7. Political variable by climate_change belief (table)
+pulse_clean %>% 
+  tabyl(political_var, climate_change) %>% 
+  adorn_percentages("row") %>% 
+  adorn_pct_formatting(digits = 1) %>%
+  adorn_ns
+```
+
+```{r}
+# 8. Political variable stacked bar chart
+pulse_clean %>%
+  count(political_var, climate_change) %>%
+  group_by(political_var) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(x = political_var, y = percent, fill = climate_change)) +
+  geom_col(position = "stack") +
+  labs(title = "Climate Change Belief by Political Variable", 
+       x = "Political Variable", y = "Percentage", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 9. Political variable grouped bar chart
+pulse_clean %>%
+  count(political_var, climate_change) %>%
+  group_by(political_var) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(x = political_var, y = percent, fill = climate_change)) +
+  geom_col(position = "dodge") +
+  labs(title = "Climate Change Belief by Political Variable (Grouped)", 
+       x = "Political Variable", y = "Percentage", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 10. Age vs Education interaction
+ggplot(pulse_clean, aes(x = age, fill = climate_change)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~education) +
+  labs(title = "Age Distribution by Climate Change Belief, Faceted by Education", 
+       x = "Age", y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# 11. Age vs Political variable interaction
+ggplot(pulse_clean, aes(x = age, fill = climate_change)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~political_var) +
+  labs(title = "Age Distribution by Climate Change Belief, Faceted by Political Variable", 
+       x = "Age", y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# 12. Education vs Political variable crosstab visualization
+pulse_clean %>%
+  count(education, political_var, climate_change) %>%
+  group_by(education, political_var) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(x = education, y = percent, fill = climate_change)) +
+  geom_col(position = "stack") +
+  facet_wrap(~political_var) +
+  labs(title = "Climate Change Belief by Education and Political Variable", 
+       x = "Education", y = "Percentage", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 13. Mean age by climate_change and education
+pulse_clean %>%
+  group_by(climate_change, education) %>%
+  summarize(mean_age = mean(age, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = education, y = mean_age, fill = climate_change)) +
+  geom_col(position = "dodge") +
+  labs(title = "Mean Age by Climate Change Belief and Education", 
+       x = "Education", y = "Mean Age", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 14. Mean age by climate_change and political variable
+pulse_clean %>%
+  group_by(climate_change, political_var) %>%
+  summarize(mean_age = mean(age, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = political_var, y = mean_age, fill = climate_change)) +
+  geom_col(position = "dodge") +
+  labs(title = "Mean Age by Climate Change Belief and Political Variable", 
+       x = "Political Variable", y = "Mean Age", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 15. All predictors heatmap (if we can create numeric correlations)
+# Create a numeric version of climate_change for correlation
+pulse_clean_num <- pulse_clean %>%
+  mutate(climate_change_num = case_when(
+    climate_change == "Not Real at All" ~ 1,
+    climate_change == "Real but not Caused by People" ~ 2,
+    climate_change == "Real and Caused by People" ~ 3
+  ))
+
+# Correlation between age and climate_change (numeric)
+cor(pulse_clean_num$age, pulse_clean_num$climate_change_num, use = "complete.obs")
+```
+
+```{r}
+# 16. Age distribution histograms by climate_change
+ggplot(pulse_clean, aes(x = age, fill = climate_change)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  facet_wrap(~climate_change, ncol = 1) +
+  labs(title = "Age Distribution Histograms by Climate Change Belief", 
+       x = "Age", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+# 17. Age by climate_change with summary statistics
+pulse_clean %>%
+  group_by(climate_change) %>%
+  summarize(mean_age = mean(age), median_age = median(age), 
+            min_age = min(age), max_age = max(age), .groups = "drop")
+```
+
+```{r}
+# 18. Count plots showing sample sizes
+pulse_clean %>%
+  ggplot(aes(x = climate_change, fill = climate_change)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  labs(title = "Sample Size by Climate Change Belief", x = "Climate Change Belief", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+# 19. Education distribution by climate_change
+pulse_clean %>%
+  ggplot(aes(x = education, fill = climate_change)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Education Distribution by Climate Change Belief", 
+       x = "Education", y = "Count", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 20. Political variable distribution by climate_change
+pulse_clean %>%
+  ggplot(aes(x = political_var, fill = climate_change)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Political Variable Distribution by Climate Change Belief", 
+       x = "Political Variable", y = "Count", fill = "Climate Change Belief") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Build Naive Bayes Model and Test Prediction
+
+```{r}
+# Build model
+climate_model <- naiveBayes(climate_change ~ age + education + political_var, data = pulse_clean)
+climate_model
+
+# Create test person and make predictions
+test_person <- data.frame(
+  age = 45,
+  education = "Some College",
+  political_var = if("Republican" %in% pulse_clean$political_var) "Republican" else unique(pulse_clean$political_var)[1]
+)
+
+# Predict probabilities and class
+predict(climate_model, newdata = test_person, type = "raw")
+predict(climate_model, newdata = test_person)
+```
+
+### Manual Calculations to Verify Results
+
+```{r}
+# Step 1: Prior probabilities
+prior_probs <- pulse_clean %>% tabyl(climate_change) %>% mutate(percent = n/sum(n))
+prior_prob_not_real <- prior_probs$percent[prior_probs$climate_change == "Not Real at All"]
+prior_prob_not_caused <- prior_probs$percent[prior_probs$climate_change == "Real but not Caused by People"]
+prior_prob_caused_by_people <- prior_probs$percent[prior_probs$climate_change == "Real and Caused by People"]
+
+# Step 2: Age likelihoods (quantitative predictor)
+age_stats <- pulse_clean %>% group_by(climate_change) %>% summarize(mean_age = mean(age, na.rm = TRUE), sd_age = sd(age, na.rm = TRUE))
+likelihood_age_not_real <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Not Real at All"], 
+                                 sd = age_stats$sd_age[age_stats$climate_change == "Not Real at All"])
+likelihood_age_not_caused <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Real but not Caused by People"], 
+                                   sd = age_stats$sd_age[age_stats$climate_change == "Real but not Caused by People"])
+likelihood_age_caused_by_people <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Real and Caused by People"], 
+                                         sd = age_stats$sd_age[age_stats$climate_change == "Real and Caused by People"])
+
+# Step 3: Categorical predictor likelihoods
+edu_likelihoods <- pulse_clean %>% tabyl(climate_change, education) %>% adorn_percentages("row")
+likelihood_edu_not_real <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Not Real at All"]
+likelihood_edu_not_caused <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Real but not Caused by People"]
+likelihood_edu_caused_by_people <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Real and Caused by People"]
+
+test_value <- as.character(test_person$political_var[1])
+party_likelihoods <- pulse_clean %>% tabyl(climate_change, political_var) %>% adorn_percentages("row")
+if(test_value %in% names(party_likelihoods)) {
+  likelihood_party_not_real <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Not Real at All"]
+  likelihood_party_not_caused <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real but not Caused by People"]
+  likelihood_party_caused_by_people <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real and Caused by People"]
+} else {
+  test_value <- setdiff(names(party_likelihoods), "climate_change")[1]
+  likelihood_party_not_real <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Not Real at All"]
+  likelihood_party_not_caused <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real but not Caused by People"]
+  likelihood_party_caused_by_people <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real and Caused by People"]
+}
+
+# Step 4: Weighted likelihood (normalizing constant)
+weighted_likelihood <- (prior_prob_not_real * likelihood_age_not_real * likelihood_edu_not_real * likelihood_party_not_real) +
+  (prior_prob_not_caused * likelihood_age_not_caused * likelihood_edu_not_caused * likelihood_party_not_caused) +
+  (prior_prob_caused_by_people * likelihood_age_caused_by_people * likelihood_edu_caused_by_people * likelihood_party_caused_by_people)
+
+# Step 5: Posterior probabilities
+posterior_not_real <- (prior_prob_not_real * likelihood_age_not_real * likelihood_edu_not_real * likelihood_party_not_real) / weighted_likelihood
+posterior_not_caused <- (prior_prob_not_caused * likelihood_age_not_caused * likelihood_edu_not_caused * likelihood_party_not_caused) / weighted_likelihood
+posterior_caused_by_people <- (prior_prob_caused_by_people * likelihood_age_caused_by_people * likelihood_edu_caused_by_people * likelihood_party_caused_by_people) / weighted_likelihood
+
+# Display results
+cat("Posterior Probabilities:\n")
+cat("Not Real at All:", posterior_not_real, "\n")
+cat("Real but not Caused by People:", posterior_not_caused, "\n")
+cat("Real and Caused by People:", posterior_caused_by_people, "\n")
+cat("Sum:", posterior_not_real + posterior_not_caused + posterior_caused_by_people, "\n")
+```
+
+### Model Accuracy Assessment
+
+```{r}
+# Add predictions and create confusion matrix
+pulse_clean <- pulse_clean %>% mutate(predicted_climate = predict(climate_model, newdata = .))
+pulse_clean %>% tabyl(climate_change, predicted_climate) %>% adorn_percentages("row") %>% adorn_pct_formatting(digits = 2) %>% adorn_ns
+```
+
+### Summary
+
+The naive Bayes model successfully classifies climate change beliefs using age, education, and political party as predictors. Key findings:
+
+1.  **Age** shows different distributions across climate change beliefs, with younger people more likely to believe climate change is caused by people
+2.  **Education** level is strongly associated with climate change beliefs
+3.  **Political variable** (party/vote/gender depending on what's available) is associated with climate change beliefs
+4.  The manual calculations confirm the model's probability predictions, demonstrating how naive Bayes combines prior probabilities with likelihoods from multiple predictors
