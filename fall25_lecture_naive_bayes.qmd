@@ -633,30 +633,39 @@ data("pulse_of_the_nation")
 ### Explore the Dataset and Select Predictors
 
 ```{r}
-# Explore dataset and select predictors: age, education, and political variable
+# Explore dataset and select predictors
 glimpse(pulse_of_the_nation)
 pulse_of_the_nation %>% tabyl(climate_change)
 
-# Find political variable (try common names: party, vote, gender, or first available categorical)
-if("party" %in% names(pulse_of_the_nation)) {
-  political_var_name <- "party"
-} else if("vote" %in% names(pulse_of_the_nation)) {
-  political_var_name <- "vote"
-} else if("gender" %in% names(pulse_of_the_nation)) {
-  political_var_name <- "gender"
+# Check if transformers and income exist - if so, use them; otherwise use age, education, political variable
+if("transformers" %in% names(pulse_of_the_nation) && "income" %in% names(pulse_of_the_nation)) {
+  # Use transformers and income
+  predictor_vars <- c("climate_change", "transformers", "income")
+  pulse_clean <- pulse_of_the_nation %>% 
+    select(all_of(predictor_vars)) %>% 
+    filter(!is.na(climate_change), !is.na(transformers), !is.na(income))
+  cat("Using predictors: transformers, income\n")
 } else {
-  cat_vars <- names(pulse_of_the_nation)[sapply(pulse_of_the_nation, function(x) is.character(x) | is.factor(x))]
-  cat_vars <- setdiff(cat_vars, "climate_change")
-  political_var_name <- cat_vars[1]
-  cat("Using variable:", political_var_name, "as predictor\n")
+  # Use age, education, and political variable (original approach)
+  if("party" %in% names(pulse_of_the_nation)) {
+    political_var_name <- "party"
+  } else if("vote" %in% names(pulse_of_the_nation)) {
+    political_var_name <- "vote"
+  } else if("gender" %in% names(pulse_of_the_nation)) {
+    political_var_name <- "gender"
+  } else {
+    cat_vars <- names(pulse_of_the_nation)[sapply(pulse_of_the_nation, function(x) is.character(x) | is.factor(x))]
+    cat_vars <- setdiff(cat_vars, "climate_change")
+    political_var_name <- cat_vars[1]
+    cat("Using variable:", political_var_name, "as predictor\n")
+  }
+  predictor_vars <- c("climate_change", "age", "education", political_var_name)
+  pulse_clean <- pulse_of_the_nation %>% 
+    select(all_of(predictor_vars)) %>% 
+    filter(!is.na(climate_change), !is.na(age), !is.na(education), !is.na(!!sym(political_var_name))) %>%
+    rename(political_var = !!sym(political_var_name))
+  cat("Using predictors: age, education,", political_var_name, "\n")
 }
-
-# Create clean dataset with predictors
-predictor_vars <- c("climate_change", "age", "education", political_var_name)
-pulse_clean <- pulse_of_the_nation %>% 
-  select(all_of(predictor_vars)) %>% 
-  filter(!is.na(climate_change), !is.na(age), !is.na(education), !is.na(!!sym(political_var_name))) %>%
-  rename(political_var = !!sym(political_var_name))
 
 cat("Dataset prepared with", nrow(pulse_clean), "complete cases\n")
 ```
@@ -902,23 +911,63 @@ pulse_clean %>%
 ### Build Naive Bayes Model and Test Prediction
 
 ```{r}
-# Build model
-climate_model <- naiveBayes(climate_change ~ age + education + political_var, data = pulse_clean)
-climate_model
-
-# Create test person and make predictions
-test_person <- data.frame(
-  age = 45,
-  education = "Some College",
-  political_var = if("Republican" %in% pulse_clean$political_var) "Republican" else unique(pulse_clean$political_var)[1]
-)
+# Build model - use transformers and income if available, otherwise use age, education, political_var
+if("transformers" %in% names(pulse_clean) && "income" %in% names(pulse_clean)) {
+  climate_model <- naiveBayes(climate_change ~ transformers + income, data = pulse_clean)
+  climate_model
+  
+  # Create test person with transformers and income
+  test_person <- data.frame(
+    transformers = 10,
+    income = 1000
+  )
+} else {
+  climate_model <- naiveBayes(climate_change ~ age + education + political_var, data = pulse_clean)
+  climate_model
+  
+  # Create test person with age, education, political_var
+  test_person <- data.frame(
+    age = 45,
+    education = "Some College",
+    political_var = if("Republican" %in% pulse_clean$political_var) "Republican" else unique(pulse_clean$political_var)[1]
+  )
+}
 
 # Predict probabilities and class
 predict(climate_model, newdata = test_person, type = "raw")
 predict(climate_model, newdata = test_person)
 ```
 
+**Note:** If you want to use different predictors (like `transformers` and `income`), first check if they exist:
+
+```{r}
+# Check if transformers and income exist in the dataset
+cat("Checking for variables:\n")
+cat("transformers exists:", "transformers" %in% names(pulse_of_the_nation), "\n")
+cat("income exists:", "income" %in% names(pulse_of_the_nation), "\n")
+
+# If they exist, show their structure
+if("transformers" %in% names(pulse_of_the_nation) && "income" %in% names(pulse_of_the_nation)) {
+  cat("\nVariable types:\n")
+  cat("transformers:", class(pulse_of_the_nation$transformers), "\n")
+  cat("income:", class(pulse_of_the_nation$income), "\n")
+  cat("\nSample values:\n")
+  head(pulse_of_the_nation %>% select(transformers, income, climate_change))
+} else {
+  cat("\nThese variables don't exist. Available variables:\n")
+  print(names(pulse_of_the_nation))
+}
+```
+
+If `transformers` and `income` exist, use this syntax:
+
+``` r
+climate_model <- naiveBayes(climate_change ~ transformers + income, data = pulse_clean)
+```
+
 ### Manual Calculations to Verify Results
+
+**Note:** These calculations use the predictors from your model. If you used `transformers` and `income`, adjust the code accordingly.
 
 ```{r}
 # Step 1: Prior probabilities
@@ -927,50 +976,118 @@ prior_prob_not_real <- prior_probs$percent[prior_probs$climate_change == "Not Re
 prior_prob_not_caused <- prior_probs$percent[prior_probs$climate_change == "Real but not Caused by People"]
 prior_prob_caused_by_people <- prior_probs$percent[prior_probs$climate_change == "Real and Caused by People"]
 
-# Step 2: Age likelihoods (quantitative predictor)
-age_stats <- pulse_clean %>% group_by(climate_change) %>% summarize(mean_age = mean(age, na.rm = TRUE), sd_age = sd(age, na.rm = TRUE))
-likelihood_age_not_real <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Not Real at All"], 
-                                 sd = age_stats$sd_age[age_stats$climate_change == "Not Real at All"])
-likelihood_age_not_caused <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Real but not Caused by People"], 
-                                   sd = age_stats$sd_age[age_stats$climate_change == "Real but not Caused by People"])
-likelihood_age_caused_by_people <- dnorm(45, mean = age_stats$mean_age[age_stats$climate_change == "Real and Caused by People"], 
-                                         sd = age_stats$sd_age[age_stats$climate_change == "Real and Caused by People"])
+# Initialize all likelihoods to 1 (will multiply by actual likelihoods)
+likelihood_quant1_not_real <- 1
+likelihood_quant1_not_caused <- 1
+likelihood_quant1_caused_by_people <- 1
 
-# Step 3: Categorical predictor likelihoods
-edu_likelihoods <- pulse_clean %>% tabyl(climate_change, education) %>% adorn_percentages("row")
-likelihood_edu_not_real <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Not Real at All"]
-likelihood_edu_not_caused <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Real but not Caused by People"]
-likelihood_edu_caused_by_people <- edu_likelihoods$`Some College`[edu_likelihoods$climate_change == "Real and Caused by People"]
+likelihood_quant2_not_real <- 1
+likelihood_quant2_not_caused <- 1
+likelihood_quant2_caused_by_people <- 1
 
-test_value <- as.character(test_person$political_var[1])
-party_likelihoods <- pulse_clean %>% tabyl(climate_change, political_var) %>% adorn_percentages("row")
-if(test_value %in% names(party_likelihoods)) {
-  likelihood_party_not_real <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Not Real at All"]
-  likelihood_party_not_caused <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real but not Caused by People"]
-  likelihood_party_caused_by_people <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real and Caused by People"]
-} else {
-  test_value <- setdiff(names(party_likelihoods), "climate_change")[1]
-  likelihood_party_not_real <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Not Real at All"]
-  likelihood_party_not_caused <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real but not Caused by People"]
-  likelihood_party_caused_by_people <- party_likelihoods[[test_value]][party_likelihoods$climate_change == "Real and Caused by People"]
+likelihood_education_not_real <- 1
+likelihood_education_not_caused <- 1
+likelihood_education_caused_by_people <- 1
+
+likelihood_political_not_real <- 1
+likelihood_political_not_caused <- 1
+likelihood_political_caused_by_people <- 1
+
+# Step 2: Quantitative predictor 1 (transformers or age)
+if("transformers" %in% names(pulse_clean) && "transformers" %in% names(test_person)) {
+  transformers_stats <- pulse_clean %>% group_by(climate_change) %>% summarize(mean_transformers = mean(transformers, na.rm = TRUE), sd_transformers = sd(transformers, na.rm = TRUE))
+  test_transformers <- as.numeric(test_person$transformers[1])
+  likelihood_quant1_not_real <- dnorm(test_transformers, mean = transformers_stats$mean_transformers[transformers_stats$climate_change == "Not Real at All"], 
+                                      sd = transformers_stats$sd_transformers[transformers_stats$climate_change == "Not Real at All"])
+  likelihood_quant1_not_caused <- dnorm(test_transformers, mean = transformers_stats$mean_transformers[transformers_stats$climate_change == "Real but not Caused by People"], 
+                                       sd = transformers_stats$sd_transformers[transformers_stats$climate_change == "Real but not Caused by People"])
+  likelihood_quant1_caused_by_people <- dnorm(test_transformers, mean = transformers_stats$mean_transformers[transformers_stats$climate_change == "Real and Caused by People"], 
+                                              sd = transformers_stats$sd_transformers[transformers_stats$climate_change == "Real and Caused by People"])
+} else if("age" %in% names(pulse_clean) && "age" %in% names(test_person)) {
+  age_stats <- pulse_clean %>% group_by(climate_change) %>% summarize(mean_age = mean(age, na.rm = TRUE), sd_age = sd(age, na.rm = TRUE))
+  test_age <- as.numeric(test_person$age[1])
+  likelihood_quant1_not_real <- dnorm(test_age, mean = age_stats$mean_age[age_stats$climate_change == "Not Real at All"], 
+                                      sd = age_stats$sd_age[age_stats$climate_change == "Not Real at All"])
+  likelihood_quant1_not_caused <- dnorm(test_age, mean = age_stats$mean_age[age_stats$climate_change == "Real but not Caused by People"], 
+                                       sd = age_stats$sd_age[age_stats$climate_change == "Real but not Caused by People"])
+  likelihood_quant1_caused_by_people <- dnorm(test_age, mean = age_stats$mean_age[age_stats$climate_change == "Real and Caused by People"], 
+                                              sd = age_stats$sd_age[age_stats$climate_change == "Real and Caused by People"])
 }
 
-# Step 4: Weighted likelihood (normalizing constant)
-weighted_likelihood <- (prior_prob_not_real * likelihood_age_not_real * likelihood_edu_not_real * likelihood_party_not_real) +
-  (prior_prob_not_caused * likelihood_age_not_caused * likelihood_edu_not_caused * likelihood_party_not_caused) +
-  (prior_prob_caused_by_people * likelihood_age_caused_by_people * likelihood_edu_caused_by_people * likelihood_party_caused_by_people)
+# Step 3: Quantitative predictor 2 (income)
+if("income" %in% names(pulse_clean) && "income" %in% names(test_person)) {
+  income_stats <- pulse_clean %>% group_by(climate_change) %>% summarize(mean_income = mean(income, na.rm = TRUE), sd_income = sd(income, na.rm = TRUE))
+  test_income <- as.numeric(test_person$income[1])
+  likelihood_quant2_not_real <- dnorm(test_income, mean = income_stats$mean_income[income_stats$climate_change == "Not Real at All"], 
+                                     sd = income_stats$sd_income[income_stats$climate_change == "Not Real at All"])
+  likelihood_quant2_not_caused <- dnorm(test_income, mean = income_stats$mean_income[income_stats$climate_change == "Real but not Caused by People"], 
+                                        sd = income_stats$sd_income[income_stats$climate_change == "Real but not Caused by People"])
+  likelihood_quant2_caused_by_people <- dnorm(test_income, mean = income_stats$mean_income[income_stats$climate_change == "Real and Caused by People"], 
+                                             sd = income_stats$sd_income[income_stats$climate_change == "Real and Caused by People"])
+}
 
-# Step 5: Posterior probabilities
-posterior_not_real <- (prior_prob_not_real * likelihood_age_not_real * likelihood_edu_not_real * likelihood_party_not_real) / weighted_likelihood
-posterior_not_caused <- (prior_prob_not_caused * likelihood_age_not_caused * likelihood_edu_not_caused * likelihood_party_not_caused) / weighted_likelihood
-posterior_caused_by_people <- (prior_prob_caused_by_people * likelihood_age_caused_by_people * likelihood_edu_caused_by_people * likelihood_party_caused_by_people) / weighted_likelihood
+# Step 4: Categorical predictor - Education
+if("education" %in% names(pulse_clean) && "education" %in% names(test_person)) {
+  test_education <- as.character(test_person$education[1])
+  education_counts <- pulse_clean %>% 
+    group_by(climate_change, education) %>% 
+    summarize(n = n(), .groups = "drop") %>%
+    group_by(climate_change) %>%
+    mutate(total = sum(n), prob = n / total)
+  
+  likelihood_education_not_real <- education_counts$prob[education_counts$climate_change == "Not Real at All" & education_counts$education == test_education]
+  if(length(likelihood_education_not_real) == 0) likelihood_education_not_real <- 0
+  
+  likelihood_education_not_caused <- education_counts$prob[education_counts$climate_change == "Real but not Caused by People" & education_counts$education == test_education]
+  if(length(likelihood_education_not_caused) == 0) likelihood_education_not_caused <- 0
+  
+  likelihood_education_caused_by_people <- education_counts$prob[education_counts$climate_change == "Real and Caused by People" & education_counts$education == test_education]
+  if(length(likelihood_education_caused_by_people) == 0) likelihood_education_caused_by_people <- 0
+}
+
+# Step 5: Categorical predictor - Political variable
+if("political_var" %in% names(pulse_clean) && "political_var" %in% names(test_person)) {
+  test_political <- as.character(test_person$political_var[1])
+  political_counts <- pulse_clean %>% 
+    group_by(climate_change, political_var) %>% 
+    summarize(n = n(), .groups = "drop") %>%
+    group_by(climate_change) %>%
+    mutate(total = sum(n), prob = n / total)
+  
+  likelihood_political_not_real <- political_counts$prob[political_counts$climate_change == "Not Real at All" & political_counts$political_var == test_political]
+  if(length(likelihood_political_not_real) == 0) likelihood_political_not_real <- 0
+  
+  likelihood_political_not_caused <- political_counts$prob[political_counts$climate_change == "Real but not Caused by People" & political_counts$political_var == test_political]
+  if(length(likelihood_political_not_caused) == 0) likelihood_political_not_caused <- 0
+  
+  likelihood_political_caused_by_people <- political_counts$prob[political_counts$climate_change == "Real and Caused by People" & political_counts$political_var == test_political]
+  if(length(likelihood_political_caused_by_people) == 0) likelihood_political_caused_by_people <- 0
+}
+
+# Step 6: Calculate unnormalized posteriors (prior * all likelihoods)
+unnorm_posterior_not_real <- prior_prob_not_real * likelihood_quant1_not_real * likelihood_quant2_not_real * 
+  likelihood_education_not_real * likelihood_political_not_real
+
+unnorm_posterior_not_caused <- prior_prob_not_caused * likelihood_quant1_not_caused * likelihood_quant2_not_caused * 
+  likelihood_education_not_caused * likelihood_political_not_caused
+
+unnorm_posterior_caused_by_people <- prior_prob_caused_by_people * likelihood_quant1_caused_by_people * likelihood_quant2_caused_by_people * 
+  likelihood_education_caused_by_people * likelihood_political_caused_by_people
+
+# Step 7: Normalizing constant (sum of unnormalized posteriors)
+normalizing_constant <- unnorm_posterior_not_real + unnorm_posterior_not_caused + unnorm_posterior_caused_by_people
+
+# Step 8: Normalized posterior probabilities
+posterior_not_real <- unnorm_posterior_not_real / normalizing_constant
+posterior_not_caused <- unnorm_posterior_not_caused / normalizing_constant
+posterior_caused_by_people <- unnorm_posterior_caused_by_people / normalizing_constant
 
 # Display results
 cat("Posterior Probabilities:\n")
-cat("Not Real at All:", posterior_not_real, "\n")
-cat("Real but not Caused by People:", posterior_not_caused, "\n")
-cat("Real and Caused by People:", posterior_caused_by_people, "\n")
-cat("Sum:", posterior_not_real + posterior_not_caused + posterior_caused_by_people, "\n")
+cat("Not Real at All:", round(posterior_not_real, 4), "\n")
+cat("Real but not Caused by People:", round(posterior_not_caused, 4), "\n")
+cat("Real and Caused by People:", round(posterior_caused_by_people, 4), "\n")
+cat("Sum:", round(posterior_not_real + posterior_not_caused + posterior_caused_by_people, 4), "\n")
 ```
 
 ### Model Accuracy Assessment
