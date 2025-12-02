@@ -1,10 +1,19 @@
-# DS400: Bayesian Statistics
+# DS400: Bayesian Statistics - Final Project
 
-## Final Project: Baseball Pitch Analysis
+## ⚾ Baseball Pitch Analysis: Bayesian Strike Zone Predictor
+
+<!-- Add CUH logo here -->
+<!-- ![CUH Logo](path/to/cuh_logo.png) -->
 
 ### Project Description
 
-This project implements a Bayesian strike zone predictor using Shiny. The application allows users to select a pitch type and target location in the strike zone, then provides Bayesian predictions about the likelihood of a strike.
+This project implements a Bayesian strike zone predictor using Shiny. The application allows users to select a pitch type and target location in the strike zone, then provides Bayesian predictions about the likelihood of a strike call.
+
+**Key Features:**
+- Interactive Shiny application with clickable strike zone
+- Bayesian logistic regression modeling
+- Real-time strike probability predictions with credible intervals
+- Posterior distribution visualization
 
 ### Files
 
@@ -57,4 +66,29 @@ The application uses synthetic pitch data generated to demonstrate Bayesian mode
 
 ### Contributors
 
-[Add contributor GitHub profiles here]
+<!-- Add links to each group member's GitHub profile -->
+- [Your Name](https://github.com/yourusername)
+- [Group Member 2](https://github.com/member2)
+- [Group Member 3](https://github.com/member3)
+- [Group Member 4](https://github.com/member4)
+
+### Repository Setup
+
+To fork and run this analysis:
+
+1. **Fork this repository** by clicking the "Fork" button on GitHub
+2. **Clone your fork:**
+   ```bash
+   git clone https://github.com/yourusername/DS400.git
+   cd DS400
+   ```
+3. **Install required packages** (if not already installed):
+   ```r
+   install.packages(c("shiny", "ggplot2", "dplyr", "rstanarm", "bayesplot", "shinythemes"))
+   ```
+4. **Run the app:**
+   ```r
+   source("baseball_pitch_app.R")
+   ```
+
+The entire analysis can be run without editing any code - simply execute the commands above!
