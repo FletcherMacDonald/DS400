@@ -1,0 +1,190 @@
+---
+title: "Baseball Pitch Analysis: Bayesian Strike Zone Predictor"
+subtitle: "Final Project - DS 400"
+format: html
+editor: visual
+execute:
+  warning: false
+  message: false
+---
+
+## Overview
+
+This Shiny application uses Bayesian logistic regression to predict strike probability based on pitch type and target location in the strike zone. Users can select a pitch type and click on the strike zone to choose a target location, then receive Bayesian predictions about the likelihood of a strike.
+
+## Libraries
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(rstanarm)
+library(bayesplot)
+library(shinythemes)
+```
+
+## Data Generation
+
+We generate synthetic pitch data to train our Bayesian model:
+
+```{r}
+# Define strike zone dimensions
+STRIKE_ZONE_WIDTH <- 1.417  # 17 inches = 1.417 feet
+STRIKE_ZONE_HEIGHT <- 2.0   # 1.5 to 3.5 feet = 2 feet height
+
+# Generate synthetic pitch data
+set.seed(123)
+n_pitches <- 1000
+
+pitch_data <- data.frame(
+  pitch_type = sample(c("Fastball", "Curveball", "Slider", "Changeup", "Cutter"), 
+                      n_pitches, replace = TRUE, 
+                      prob = c(0.4, 0.15, 0.2, 0.15, 0.1)),
+  plate_x = rnorm(n_pitches, 0, 0.8),
+  plate_z = rnorm(n_pitches, 2.5, 0.6),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    in_zone = abs(plate_x) <= STRIKE_ZONE_WIDTH/2 & 
+              plate_z >= 1.5 & plate_z <= 3.5,
+    strike_prob = case_when(
+      in_zone ~ 0.85,
+      abs(plate_x) <= STRIKE_ZONE_WIDTH & plate_z >= 1.0 & plate_z <= 4.0 ~ 0.50,
+      TRUE ~ 0.15
+    ),
+    strike_prob = case_when(
+      pitch_type == "Fastball" ~ strike_prob * 1.05,
+      pitch_type == "Curveball" ~ strike_prob * 0.95,
+      pitch_type == "Slider" ~ strike_prob * 1.0,
+      pitch_type == "Changeup" ~ strike_prob * 0.98,
+      TRUE ~ strike_prob
+    ),
+    strike_prob = pmin(pmax(strike_prob, 0), 1),
+    is_strike = rbinom(n_pitches, 1, strike_prob),
+    outcome = case_when(
+      is_strike == 1 & in_zone ~ "Called Strike",
+      is_strike == 1 & !in_zone ~ "Swinging Strike",
+      is_strike == 0 & in_zone ~ "Ball (Missed Call)",
+      TRUE ~ "Ball"
+    )
+  )
+
+head(pitch_data)
+```
+
+## Exploratory Data Visualization
+
+```{r}
+# Strike zone visualization
+ggplot(pitch_data, aes(x = plate_x, y = plate_z, color = factor(is_strike))) +
+  geom_point(alpha = 0.6, size = 1.5) +
+  geom_rect(aes(xmin = -STRIKE_ZONE_WIDTH/2, xmax = STRIKE_ZONE_WIDTH/2,
+                ymin = 1.5, ymax = 3.5),
+            fill = NA, color = "black", size = 2, inherit.aes = FALSE) +
+  facet_wrap(~pitch_type) +
+  labs(
+    title = "Pitch Locations by Type",
+    subtitle = "Strikes (green) vs Balls (red)",
+    x = "Horizontal Position (feet)",
+    y = "Vertical Position (feet)",
+    color = "Outcome"
+  ) +
+  theme_minimal() +
+  coord_fixed()
+```
+
+```{r}
+# Strike rate by pitch type
+pitch_data %>%
+  group_by(pitch_type) %>%
+  summarise(
+    n = n(),
+    strike_rate = mean(is_strike),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = reorder(pitch_type, strike_rate), y = strike_rate)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_text(aes(label = paste0(round(strike_rate * 100, 1), "%")),
+            hjust = -0.1) +
+  coord_flip() +
+  labs(
+    title = "Strike Rate by Pitch Type",
+    x = "Pitch Type",
+    y = "Strike Rate"
+  ) +
+  theme_minimal() +
+  ylim(0, 1)
+```
+
+## Bayesian Model
+
+We fit a Bayesian logistic regression model to predict strike probability:
+
+```{r}
+# Fit Bayesian logistic regression
+fit_model <- stan_glm(
+  is_strike ~ pitch_type + plate_x + plate_z + I(plate_x^2) + I(plate_z^2) + 
+              pitch_type:plate_x + pitch_type:plate_z,
+  data = pitch_data,
+  family = binomial(link = "logit"),
+  prior = normal(0, 2.5),
+  prior_intercept = normal(0, 2.5),
+  chains = 4,
+  iter = 2000,
+  seed = 123
+)
+
+summary(fit_model)
+```
+
+## Model Diagnostics
+
+```{r}
+# Posterior predictive check
+pp_check(fit_model, nreps = 50) +
+  labs(title = "Posterior Predictive Check")
+```
+
+```{r}
+# MCMC diagnostics
+mcmc_trace(fit_model, pars = c("(Intercept)", "plate_x", "plate_z"))
+```
+
+## Shiny Application
+
+The Shiny app allows users to:
+
+1. **Select a pitch type** from a dropdown menu
+2. **Click on the strike zone** to select a target location
+3. **View Bayesian predictions** including:
+   - Strike probability
+   - Predicted outcome
+   - 95% credible interval
+   - Posterior distribution
+
+To run the app, execute:
+
+```{r, eval=FALSE}
+source("baseball_pitch_app.R")
+```
+
+Or use:
+
+```{r, eval=FALSE}
+shiny::runApp("baseball_pitch_app.R")
+```
+
+## Results
+
+The Bayesian model provides:
+
+- **Posterior distributions** for strike probability given pitch type and location
+- **Credible intervals** that quantify uncertainty in predictions
+- **Interactive visualization** of the strike zone with real-time predictions
+
+This approach allows us to incorporate uncertainty in our predictions, which is crucial for decision-making in baseball strategy.
+
